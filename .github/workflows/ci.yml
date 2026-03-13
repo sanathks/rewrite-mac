@@ -13,4 +13,5 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
+          lfs: true
       - run: swift build
