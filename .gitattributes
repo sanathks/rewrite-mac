@@ -1,0 +1,2 @@
+vendor/sherpa-onnx/lib/libonnxruntime.a filter=lfs diff=lfs merge=lfs -text
+vendor/sherpa-onnx/lib/libsherpa-onnx.a filter=lfs diff=lfs merge=lfs -text
