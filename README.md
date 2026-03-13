@@ -4,241 +4,126 @@
 <img src="Resources/logo.png" width="128" alt="Rewrite">
 </div>
 
-Rewrite is a macOS menu bar app for system-wide text rewriting and voice input. It reads the current selection through the Accessibility API, sends the text to a local LLM server, and can write the result back into the source app. Voice input runs on-device with either WhisperKit or Parakeet.
-
-The app is built for people who want local-first writing tools:
-
-- Rewrite selected text in any app
-- Fix grammar in place with a single shortcut
-- Open a popup with multiple rewrite modes
-- Dictate into any text field with optional post-processing through your local LLM
-- Keep text and audio on your machine
-
-## How It Works
-
-Rewrite combines four pieces:
-
-1. A macOS menu bar app with global hotkeys.
-2. The Accessibility API to read selections and replace or insert text in other apps.
-3. An OpenAI-compatible local LLM endpoint for rewriting.
-4. On-device speech-to-text for dictation.
-
-For text rewriting, Rewrite calls:
-
-- `POST /v1/chat/completions`
-- `GET /v1/models`
-
-That means it works with local servers that expose an OpenAI-style API, including Ollama and LM Studio when configured appropriately.
-
-For speech-to-text, the app currently supports:
-
-- `WhisperKit`: streaming partial transcription while you speak
-- `Parakeet TDT`: faster end-of-recording transcription using the bundled `sherpa-onnx` runtime
-
-## Features
-
-- System-wide grammar fix and rewrite shortcuts
-- Configurable rewrite modes with custom prompts
-- Default quick-fix mode for silent in-place replacement
-- Popup UI positioned near the current selection
-- Voice dictation into the focused app
-- Optional auto grammar correction after dictation
-- Microphone selection
-- First-run onboarding for Accessibility and LLM setup
-- Launch at login
+Rewrite is a macOS menu bar app that lets you fix grammar, rewrite text, and dictate — in any app, with your own local AI. Everything stays on your machine.
 
 ![Menu Bar Controls](screenshots/menu-bar-models.png)
 
+## What it does
+
+- **Fix grammar** in any text field with a single shortcut — no copy/paste needed
+- **Rewrite selected text** in multiple styles (clarity, tone, humanize, and more)
+- **Dictate into any app** using on-device speech recognition
+- **Customize your modes** — edit prompts, add your own styles, set a default
+
 ## Requirements
 
-- macOS 13+
-- A local LLM server that exposes an OpenAI-compatible API
-- Accessibility permission
+- macOS 13 or later
+- [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai) installed and running
+- Accessibility permission (the app will prompt you on first launch)
 - Microphone permission for voice input
-
-Recommended local LLM options:
-
-- [Ollama](https://ollama.com)
-- [LM Studio](https://lmstudio.ai)
 
 ## Install
 
-### Prebuilt App
+Download the latest DMG from the [Releases page](https://github.com/sanathks/rewrite-mac/releases), drag `Rewrite.app` into your `Applications` folder, and open it.
 
-Download a DMG from the GitHub releases page:
-- [Releases](https://github.com/sanathks/rewrite/releases)
-
-Then:
-
-1. Drag `Rewrite.app` into `Applications`.
-2. If macOS blocks the app because it is unsigned, clear quarantine:
+If macOS says the app can't be opened because it's from an unidentified developer, run this once in Terminal:
 
 ```bash
 xattr -cr /Applications/Rewrite.app
 ```
 
-3. Launch the app.
-4. Grant Accessibility permission when prompted.
+Then open the app normally.
 
-### Build From Source
+## Setup
 
-Requirements:
+### 1. Install a local AI
 
-- Xcode or Command Line Tools with Swift support
-- Internet access for Swift Package Manager dependencies if they are not already cached
+Rewrite works with [Ollama](https://ollama.com) (recommended) or [LM Studio](https://lmstudio.ai).
 
-Build:
+With Ollama, pull a model to get started:
 
 ```bash
-git clone https://github.com/sanathks/rewrite.git
-cd rewrite
-chmod +x Scripts/build.sh Scripts/install.sh
-./Scripts/build.sh
+ollama pull gemma3:4b
 ```
 
-Artifacts:
+### 2. Connect Rewrite
 
-- `build/Rewrite.app`
-- `build/Rewrite.dmg`
+Open Rewrite from the menu bar, go to **Settings → General**, and make sure the server URL matches your setup. Ollama runs on `http://localhost:11434` by default — this is pre-filled.
 
-Architecture-specific builds:
+Hit **Refresh Models**, select your model, and you're ready.
 
-```bash
-./Scripts/build.sh arm64
-./Scripts/build.sh x86_64
-```
+### 3. Grant permissions
 
-Local install:
+The app will ask for Accessibility permission on first launch — this is needed to read and replace text in other apps. Voice input requires Microphone permission, which you'll be prompted for the first time you use it.
 
-```bash
-./Scripts/install.sh
-```
+## Using Rewrite
 
-That copies the app to `~/Applications` and registers it with Launch Services.
+### Fix grammar
 
-## LLM Setup
+Select any text in any app and press `Ctrl+Shift+G`. The text is silently fixed in place.
 
-Rewrite expects an OpenAI-compatible base URL.
+### Rewrite with options
 
-Typical values:
-
-- Ollama: `http://localhost:11434`
-- LM Studio: `http://localhost:1234`
-
-The app fetches available models from `/v1/models` and uses the selected model for rewrites.
-
-Example with Ollama:
-
-```bash
-ollama pull gemma3
-```
-
-If you use LM Studio, load a model and start its local server before connecting Rewrite.
-
-## Usage
-
-### Text Rewriting
-
-1. Launch Rewrite from the menu bar.
-2. Select text in any supported app.
-3. Press the grammar shortcut to silently replace the selection using the default mode.
-4. Press the rewrite shortcut to open the result popup near the selection.
-5. Use `Replace` to write the result back or `Copy` to place it on the clipboard.
-
-Default shortcuts:
-
-- Grammar fix: `Ctrl+Shift+G`
-- Rewrite popup: `Ctrl+Shift+T`
-
-The popup supports multiple modes and runs the selected mode on demand.
+Select text and press `Ctrl+Shift+T` to open a popup near your cursor with multiple rewrite styles. Pick a mode, then hit **Replace** to apply or **Copy** to grab it.
 
 ![Rewrite Popup](screenshots/suggestions.png)
 
-### Voice Input
+### Voice input
 
-1. Open Settings and choose a speech engine.
-2. Download the required speech model.
-3. Grant microphone permission.
-4. Hold the speech shortcut while talking.
-5. Release it to insert the transcript into the focused app.
+1. Open **Settings → Voice** and choose a speech engine (WhisperKit or Parakeet)
+2. Download the model from the same screen
+3. Hold `Ctrl+Option+S` to record, release to insert
+4. Or use `Ctrl+Option+H` to toggle hands-free recording
 
-Default voice shortcuts:
-
-- Push-to-talk dictation: `Ctrl+Option+S`
-- Hands-free dictation toggle: `Ctrl+Option+H`
-
-If `Auto Grammar Fix` is enabled, dictated text is passed through the Fix Grammar mode before insertion.
+Enable **Auto Grammar Fix** in Voice settings to automatically clean up your dictated text before it's inserted.
 
 ![Hands-Free Recording](screenshots/recording-hands-free.png)
 
-### Rewrite Modes
+## Rewrite Modes
 
-Modes are user-editable. Each mode has:
+Modes are fully customizable. The app comes with:
 
-- A display name
-- A prompt
-- Optional default-mode status
+- **Fix Grammar** — corrects errors without changing your words
+- **Clarity** — makes text easier to read
+- **My Tone** — adjusts tone while keeping your meaning
+- **Humanize** — makes text sound more natural
 
-The app ships with these built-in presets:
-
-- `Fix Grammar`
-- `Clarity`
-- `My Tone`
-- `Humanize`
-
-Modes can be reordered, edited, added, and removed from Settings.
+Add your own, edit the prompts, reorder them, or set any mode as your default in **Settings → Modes**.
 
 ![Modes Editor](screenshots/settings-modes.png)
 
-## Settings
+## Shortcuts
 
-The settings window is organized into four sections:
+All shortcuts can be changed in **Settings → Shortcuts**.
 
-- `General`: server URL, model refresh, launch at login
-- `Modes`: manage rewrite modes and choose the default mode
-- `Shortcuts`: rebind grammar, rewrite, dictation, and hands-free shortcuts
-- `Voice`: choose STT engine, download speech models, choose microphone, toggle auto grammar fix
-
-![Settings](screenshots/settings.png)
+| Action | Default |
+|---|---|
+| Fix Grammar | `Ctrl+Shift+G` |
+| Rewrite popup | `Ctrl+Shift+T` |
+| Push-to-talk | `Ctrl+Option+S` |
+| Hands-free toggle | `Ctrl+Option+H` |
 
 ## Speech Engines
 
-### WhisperKit
+**WhisperKit** — shows a live transcript as you speak. Good for longer dictation where you want to see what's being captured.
 
-- Streaming transcription with partial results while speaking
-- Multiple downloadable model sizes
-- Good fit when live feedback matters
+**Parakeet TDT** — faster, transcribes when you stop speaking. English-focused and snappy for short inputs.
 
-Current model options in the app:
+Both download their models on demand from Settings.
 
-- `Tiny`
-- `Small`
-- `Large v3 Turbo`
+## Build from source
 
-### Parakeet TDT
-
-- End-of-recording transcription
-- English-focused
-- Uses the bundled `vendor/sherpa-onnx` package and downloads model files on demand
-
-## Project Structure
-
-```text
-rewrite/
-  Sources/Rewrite/        Swift app source
-  Tests/RewriteTests/     Unit tests
-  Resources/              App icons and Info.plist
-  Scripts/build.sh        Build app bundle and DMG
-  Scripts/install.sh      Install into ~/Applications
-  vendor/sherpa-onnx/     Bundled Parakeet runtime dependency
-  Package.swift           Swift Package manifest
+```bash
+git clone https://github.com/sanathks/rewrite-mac.git
+cd rewrite-mac
+bash Scripts/build.sh
 ```
 
-## Notes
+Output: `build/Rewrite.app` and `build/Rewrite.dmg`
 
-- Rewrite depends on Accessibility APIs, so behavior can vary across macOS apps.
-- The app is local-first, but local model servers and speech model downloads still need to be installed separately.
-- The build script signs the app with a `Rewrite Development` certificate if present, otherwise with ad-hoc signing.
+## How it works
+
+Rewrite uses macOS Accessibility APIs to read the selected text and write results back into the focused app. It calls a local LLM server (OpenAI-compatible API) for text rewriting, and runs speech recognition on-device using either WhisperKit or Parakeet via sherpa-onnx.
 
 ## License
 
