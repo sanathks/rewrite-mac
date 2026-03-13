@@ -17,6 +17,7 @@ jobs:
         with:
           ref: main
           submodules: false
+          lfs: true
 
       - name: Build Apple Silicon DMG
         run: bash Scripts/build.sh arm64
@@ -38,37 +39,3 @@ jobs:
             --title "Rewrite ${{ steps.version.outputs.version }}" \
             --generate-notes
 
-      - name: Update README version
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TAG="$GITHUB_REF_NAME"
-          REPO="sanathks/rewrite"
-
-          NEW_BLOCK="<!-- VERSION-START -->
-          **Latest Release: ${VERSION}**
-
-          | Platform | Download |
-          |----------|----------|
-          | macOS (Apple Silicon) | [Rewrite-apple-silicon.dmg](https://github.com/${REPO}/releases/download/${TAG}/Rewrite-apple-silicon.dmg) |
-          | macOS (Intel) | [Rewrite-intel.dmg](https://github.com/${REPO}/releases/download/${TAG}/Rewrite-intel.dmg) |
-          <!-- VERSION-END -->"
-
-          # Remove leading whitespace from heredoc
-          NEW_BLOCK=$(echo "$NEW_BLOCK" | sed 's/^          //')
-
-          # Replace the block between markers
-          python3 -c "
-          import re, sys
-          readme = open('README.md').read()
-          pattern = r'<!-- VERSION-START -->.*?<!-- VERSION-END -->'
-          replacement = sys.argv[1]
-          readme = re.sub(pattern, replacement, readme, flags=re.DOTALL)
-          open('README.md', 'w').write(readme)
-          " "$NEW_BLOCK"
-
-      - name: Commit README update
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git diff --cached --quiet || git commit -m "Update download links to v${{ steps.version.outputs.version }}" && git push
