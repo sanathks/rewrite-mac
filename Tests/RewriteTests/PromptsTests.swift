@@ -3,43 +3,6 @@ import XCTest
 
 final class PromptsTests: XCTestCase {
 
-    // MARK: - Grammar Prompt
-
-    func testGrammarPromptContainsInputText() {
-        let prompt = Prompts.grammar(text: "hello world")
-        XCTAssertTrue(prompt.contains("hello world"))
-    }
-
-    func testGrammarPromptContainsFixInstruction() {
-        let prompt = Prompts.grammar(text: "test")
-        XCTAssertTrue(prompt.contains("Fix any grammar, spelling, and punctuation errors"))
-    }
-
-    func testGrammarPromptContainsPreserveMeaning() {
-        let prompt = Prompts.grammar(text: "test")
-        XCTAssertTrue(prompt.contains("Preserve the original meaning"))
-    }
-
-    func testGrammarPromptContainsReturnOnlyInstruction() {
-        let prompt = Prompts.grammar(text: "test")
-        XCTAssertTrue(prompt.contains("Return ONLY the corrected text"))
-    }
-
-    func testGrammarPromptHandlesEmptyString() {
-        let prompt = Prompts.grammar(text: "")
-        XCTAssertTrue(prompt.contains("Fix any grammar"))
-    }
-
-    func testGrammarPromptHandlesMultilineText() {
-        let prompt = Prompts.grammar(text: "line one\nline two\nline three")
-        XCTAssertTrue(prompt.contains("line one\nline two\nline three"))
-    }
-
-    func testGrammarPromptHandlesSpecialCharacters() {
-        let prompt = Prompts.grammar(text: "Hello! @#$% \"quotes\" & <tags>")
-        XCTAssertTrue(prompt.contains("Hello! @#$% \"quotes\" & <tags>"))
-    }
-
     // MARK: - Rewrite Prompt
 
     func testRewritePromptUsesModePrompt() {
@@ -83,5 +46,28 @@ final class PromptsTests: XCTestCase {
         let mode = RewriteMode(id: UUID(), name: "Clarity", prompt: "Make it clear")
         let prompt = Prompts.rewrite(mode: mode, text: "test")
         XCTAssertTrue(prompt.contains("Return ONLY the rewritten text"))
+    }
+
+    func testFixGrammarModeWorksThroughRewrite() {
+        let mode = RewriteMode(
+            id: Settings.fixGrammarModeId,
+            name: "Fix Grammar",
+            prompt: Settings.defaultFixGrammarPrompt
+        )
+        let prompt = Prompts.rewrite(mode: mode, text: "she dont like it")
+        XCTAssertTrue(prompt.contains("You are a grammar correction engine."))
+        XCTAssertTrue(prompt.contains("<input>she dont like it</input>"))
+        XCTAssertTrue(prompt.contains("<output>She goes to the store every day.</output>"))
+    }
+
+    func testFixGrammarPromptDoesNotUseGenericRewriteRules() {
+        let mode = RewriteMode(
+            id: Settings.fixGrammarModeId,
+            name: "Fix Grammar",
+            prompt: Settings.defaultFixGrammarPrompt
+        )
+        let prompt = Prompts.rewrite(mode: mode, text: "test")
+        XCTAssertFalse(prompt.contains("The output must only contain words and ideas from the original, rephrased if needed."))
+        XCTAssertFalse(prompt.contains("Return ONLY the rewritten text with no preamble."))
     }
 }

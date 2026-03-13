@@ -1,0 +1,27 @@
+[
+  {
+    "id": "current_app",
+    "description": "Current prompt derived from the app's Fix Grammar mode and prompt wrapper.",
+    "template": "Fix ONLY grammar, spelling, punctuation, and typos in the following text. Do NOT rephrase, reword, restructure, or rewrite anything. Keep every word, sentence structure, and tone exactly as-is unless it contains a clear error. Never add, remove, or rearrange words. STRICT RULES: Never add new content, ideas, examples, or sentences that were not in the original text. The output must only contain words and ideas from the original, rephrased if needed. The output should be the same length or shorter than the input. Never use em dashes. Use commas or periods instead. Return ONLY the rewritten text with no preamble. Do NOT wrap output in quotes or markdown formatting. Do NOT add any explanations, comments, or summary.\n\n{text}"
+  },
+  {
+    "id": "short_hard_rules",
+    "description": "Shorter grammar-only prompt with fewer contradictory instructions.",
+    "template": "Correct grammar, spelling, punctuation, capitalization, and typos only.\nDo not rewrite for style.\nDo not change wording unless required to fix an error.\nDo not add or remove information.\nReturn only the corrected text.\n\n{text}"
+  },
+  {
+    "id": "tagged_contract",
+    "description": "Explicit contract with examples and a strict output boundary.",
+    "template": "You are a grammar correction engine.\nTask: fix grammar, spelling, punctuation, capitalization, and typos only.\nRules:\n- Preserve meaning and tone.\n- Do not add advice, commentary, or extra sentences.\n- Do not explain your answer.\n- Keep line breaks.\n- Output only corrected text between <output> and </output>.\nExamples:\n<input>She go to the store every day.</input>\n<output>She goes to the store every day.</output>\n<input>pls send the build when its ready</input>\n<output>pls send the build when it's ready</output>\nNow correct this.\n<input>{text}</input>"
+  },
+  {
+    "id": "plain_contract_examples",
+    "description": "General-purpose strict grammar prompt with examples and plain-text output only.",
+    "template": "You correct grammar only.\nFix grammar, spelling, punctuation, capitalization, verb agreement, and obvious typos.\nDo not rewrite for style, clarity, or tone.\nDo not add or remove information.\nDo not answer the text.\nDo not add commentary.\nPreserve line breaks, markdown, inline code, and quoted text unless they contain a clear typo.\nReturn only the corrected text.\n\nExample 1\nInput: She go to the store every day.\nOutput: She goes to the store every day.\n\nExample 2\nInput: pls send the build when its ready\nOutput: pls send the build when it's ready\n\nExample 3\nInput: Why this model is better for grammar fixing\nOutput: Why is this model better for grammar fixing?\n\nNow correct this text:\n{text}"
+  },
+  {
+    "id": "plain_contract_preserve_shape",
+    "description": "General-purpose grammar prompt with stronger structure preservation rules for longer paragraphs.",
+    "template": "You correct grammar only.\nFix grammar, spelling, punctuation, capitalization, verb agreement, and obvious typos.\nPreserve the original wording, sentence order, paragraph breaks, markdown, inline code, and quoted text unless a specific word or punctuation mark is wrong.\nDo not rewrite for style, clarity, or tone.\nDo not shorten.\nDo not expand.\nDo not merge or split sentences unless required by a grammar error.\nDo not change statements into questions or questions into statements unless the original sentence is grammatically forced to be one.\nDo not answer the text.\nDo not add commentary.\nReturn only the corrected text.\n\nExample 1\nInput: She go to the store every day.\nOutput: She goes to the store every day.\n\nExample 2\nInput: pls send the build when its ready\nOutput: pls send the build when it's ready\n\nExample 3\nInput: Please run `swift test` before merging, because the last change werent covered.\nOutput: Please run `swift test` before merging, because the last change wasn't covered.\n\nNow correct this text:\n{text}"
+  }
+]

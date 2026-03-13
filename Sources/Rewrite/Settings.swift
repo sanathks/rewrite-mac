@@ -7,13 +7,18 @@ struct Shortcut: Equatable {
     var keyCode: UInt32
     var modifiers: UInt32 // Carbon modifier flags
 
+    /// Whether this shortcut uses only modifier keys (no letter/number key).
+    var isModifierOnly: Bool { keyCode == 0 && modifiers != 0 }
+
     var displayString: String {
         var parts: [String] = []
         if modifiers & UInt32(controlKey) != 0 { parts.append("\u{2303}") }
         if modifiers & UInt32(optionKey) != 0 { parts.append("\u{2325}") }
         if modifiers & UInt32(shiftKey) != 0 { parts.append("\u{21E7}") }
         if modifiers & UInt32(cmdKey) != 0 { parts.append("\u{2318}") }
-        parts.append(keyCodeToString(keyCode))
+        if !isModifierOnly {
+            parts.append(keyCodeToString(keyCode))
+        }
         return parts.joined()
     }
 }
@@ -24,8 +29,49 @@ struct RewriteMode: Codable, Identifiable, Equatable {
     var prompt: String
 }
 
+enum STTEngine: String, CaseIterable, Identifiable {
+    case whisperKit = "whisperKit"
+    case parakeet = "parakeet"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .whisperKit: return "WhisperKit"
+        case .parakeet: return "Parakeet TDT"
+        }
+    }
+}
+
+enum WhisperModelSize: String, CaseIterable, Identifiable {
+    case tiny = "tiny"
+    case small = "small"
+    case largeTurbo = "large-v3_turbo"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .tiny: return "Tiny (~75 MB)"
+        case .small: return "Small (~220 MB)"
+        case .largeTurbo: return "Large v3 Turbo (~630 MB)"
+        }
+    }
+
+    var whisperKitModelName: String {
+        switch self {
+        case .tiny: return "openai_whisper-tiny"
+        case .small: return "openai_whisper-small"
+        case .largeTurbo: return "openai_whisper-large-v3_turbo"
+        }
+    }
+}
+
 final class Settings: ObservableObject {
     static let shared = Settings()
+    static let fixGrammarModeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    static let defaultFixGrammarPrompt =
+        "Fix grammar, spelling, punctuation, capitalization, verb agreement, and obvious typos only. Preserve meaning, tone, sentence order, and paragraph breaks. Do not rewrite for style or clarity. Do not shorten, summarize, or add commentary. Return only the corrected text."
 
     let defaults: UserDefaults
 
@@ -51,6 +97,40 @@ final class Settings: ObservableObject {
         }
     }
 
+    @Published var sttShortcut: Shortcut {
+        didSet {
+            defaults.set(sttShortcut.keyCode, forKey: "sttKeyCode")
+            defaults.set(sttShortcut.modifiers, forKey: "sttModifiers")
+        }
+    }
+
+    @Published var handsFreeShortcut: Shortcut {
+        didSet {
+            defaults.set(handsFreeShortcut.keyCode, forKey: "handsFreeKeyCode")
+            defaults.set(handsFreeShortcut.modifiers, forKey: "handsFreeModifiers")
+        }
+    }
+
+    @Published var sttEngine: STTEngine {
+        didSet { defaults.set(sttEngine.rawValue, forKey: "sttEngine") }
+    }
+
+    @Published var whisperModelSize: WhisperModelSize {
+        didSet { defaults.set(whisperModelSize.rawValue, forKey: "whisperModelSize") }
+    }
+
+    @Published var autoGrammarOnSTT: Bool {
+        didSet { defaults.set(autoGrammarOnSTT, forKey: "autoGrammarOnSTT") }
+    }
+
+    @Published var selectedMicDeviceID: UInt32 {
+        didSet { defaults.set(selectedMicDeviceID, forKey: "selectedMicDeviceID") }
+    }
+
+    @Published var hasCompletedOnboarding: Bool {
+        didSet { defaults.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding") }
+    }
+
     @Published var defaultModeId: UUID? {
         didSet {
             if let id = defaultModeId {
@@ -71,9 +151,14 @@ final class Settings: ObservableObject {
 
     static let defaultRewriteModes: [RewriteMode] = [
         RewriteMode(
+            id: fixGrammarModeId,
+            name: "Fix Grammar",
+            prompt: defaultFixGrammarPrompt
+        ),
+        RewriteMode(
             id: UUID(),
             name: "Clarity",
-            prompt: "Rewrite the following text for maximum clarity and readability. Use simple, direct language and short sentences. Prefer active voice over passive voice. Remove filler words, redundant phrases, and unnecessary jargon. Break long sentences into shorter ones. Preserve the original meaning and all key information. Fix any grammar or spelling errors."
+            prompt: "Rewrite the following text for clarity and readability. Simplify wording and shorten long sentences. Prefer active voice. Remove filler words and redundant phrases. Do NOT add new ideas, examples, or information that was not in the original. The output must be the same length or shorter than the input. Fix any grammar or spelling errors."
         ),
         RewriteMode(
             id: UUID(),
@@ -83,19 +168,21 @@ final class Settings: ObservableObject {
         RewriteMode(
             id: UUID(),
             name: "Humanize",
-            prompt: "Rewrite the following text to sound natural and human-written. Use contractions, vary sentence length, and prefer active voice. Remove stiff connectors like \"Moreover\" and \"Furthermore\" and let ideas flow naturally. Avoid overused AI words like \"delve\", \"game-changing\", \"unlock\", \"landscape\", or \"groundbreaking\". Keep the original meaning and do not add new information. Fix any grammar or spelling errors."
-        ),
-        RewriteMode(
-            id: UUID(),
-            name: "Professional",
-            prompt: "Rewrite the following text in a professional, polished tone suitable for business communication. Be clear and confident but not stiff or overly formal. Write like a competent colleague, not a legal document. Use precise vocabulary, complete sentences, and a respectful tone. Remove slang, filler words, and casual phrasing. Preserve the original meaning and all key information. Fix any grammar or spelling errors."
+            prompt: """
+            Rewrite the following text to sound natural and human-written. \
+            Use contractions (don't, isn't, can't). Vary sentence length, mix short punchy sentences with longer ones. Prefer active voice. Be direct, lead with the point. \
+            NEVER use these words/phrases: delve, tapestry, leverage, utilize, moreover, furthermore, additionally, notably, it is worth noting, in conclusion, overall, testament, beacon, realm, landscape, foster, underscore, paramount, groundbreaking, game-changing, synergy, embark, cutting-edge, at the forefront, pave the way, harness, unlock the potential, navigate the complexities, spearhead, bridging the gap, robust, streamline, empower, crucial, vital, revolutionize, comprehensive, bespoke, endeavor, consequently, subsequently. \
+            NEVER use the construction "not just X, but also Y." \
+            NEVER use em dashes. \
+            Do NOT add new ideas, examples, sentences, or information that was not in the original. Only rephrase what already exists. Fix any grammar or spelling errors.
+            """
         ),
     ]
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
         self.serverURL = defaults.string(forKey: "ollamaURL") ?? "http://localhost:11434"
-        self.modelName = defaults.string(forKey: "modelName") ?? "gemma3"
+        self.modelName = defaults.string(forKey: "modelName") ?? "gemma3:4b"
 
         // Default: Ctrl+Shift+G for grammar
         let gCode = defaults.object(forKey: "grammarKeyCode") as? UInt32
@@ -113,17 +200,63 @@ final class Settings: ObservableObject {
             ?? UInt32(controlKey | shiftKey)
         self.rewriteShortcut = Shortcut(keyCode: rCode, modifiers: rMods)
 
+        // Default: Ctrl+Option+S for speech-to-text
+        let sCode = defaults.object(forKey: "sttKeyCode") as? UInt32
+            ?? UInt32(kVK_ANSI_S)
+        let sMods = defaults.object(forKey: "sttModifiers") as? UInt32
+            ?? UInt32(controlKey | optionKey)
+        self.sttShortcut = Shortcut(keyCode: sCode, modifiers: sMods)
+
+        // Default: Ctrl+Option+H for hands-free voice
+        let hfCode = defaults.object(forKey: "handsFreeKeyCode") as? UInt32
+            ?? UInt32(kVK_ANSI_H)
+        let hfMods = defaults.object(forKey: "handsFreeModifiers") as? UInt32
+            ?? UInt32(controlKey | optionKey)
+        self.handsFreeShortcut = Shortcut(keyCode: hfCode, modifiers: hfMods)
+
+        // STT engine (migrate moonshine -> whisperKit)
+        if let engineStr = defaults.string(forKey: "sttEngine"),
+           let engine = STTEngine(rawValue: engineStr) {
+            self.sttEngine = engine
+        } else {
+            self.sttEngine = .whisperKit
+        }
+
+        // Whisper model size
+        if let whisperStr = defaults.string(forKey: "whisperModelSize"),
+           let size = WhisperModelSize(rawValue: whisperStr) {
+            self.whisperModelSize = size
+        } else {
+            self.whisperModelSize = .largeTurbo
+        }
+
+        // Auto grammar correction after STT (default: true)
+        if defaults.object(forKey: "autoGrammarOnSTT") != nil {
+            self.autoGrammarOnSTT = defaults.bool(forKey: "autoGrammarOnSTT")
+        } else {
+            self.autoGrammarOnSTT = true
+        }
+
+        // Selected mic device ID (default: 0 = system default)
+        self.selectedMicDeviceID = UInt32(defaults.integer(forKey: "selectedMicDeviceID"))
+
+        self.hasCompletedOnboarding = defaults.bool(forKey: "hasCompletedOnboarding")
+
         // Load default mode
         if let idString = defaults.string(forKey: "defaultModeId"),
            let uuid = UUID(uuidString: idString) {
             self.defaultModeId = uuid
         } else {
-            self.defaultModeId = nil
+            self.defaultModeId = Settings.fixGrammarModeId
         }
 
         // Load rewrite modes from UserDefaults or use defaults
         if let data = defaults.data(forKey: "rewriteModes"),
-           let modes = try? JSONDecoder().decode([RewriteMode].self, from: data) {
+           var modes = try? JSONDecoder().decode([RewriteMode].self, from: data) {
+            // Migration: ensure Fix Grammar mode exists for existing users
+            if !modes.contains(where: { $0.id == Settings.fixGrammarModeId }) {
+                modes.insert(Settings.defaultRewriteModes[0], at: 0)
+            }
             self.rewriteModes = modes
         } else {
             self.rewriteModes = Settings.defaultRewriteModes

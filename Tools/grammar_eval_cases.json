@@ -1,0 +1,102 @@
+[
+  {
+    "id": "basic_typos",
+    "input": "This is my bad grammar with typos.",
+    "expected": "This is my bad grammar with typos."
+  },
+  {
+    "id": "subject_verb",
+    "input": "She go to the store every day.",
+    "expected": "She goes to the store every day."
+  },
+  {
+    "id": "apostrophe",
+    "input": "Its important that the app doesnt rewrite my wording.",
+    "expected": "It's important that the app doesn't rewrite my wording."
+  },
+  {
+    "id": "punctuation_spacing",
+    "input": "Hello , how are you ?",
+    "expected": "Hello, how are you?"
+  },
+  {
+    "id": "capitalization",
+    "input": "i think we should ship this tomorrow.",
+    "expected": "I think we should ship this tomorrow."
+  },
+  {
+    "id": "tense",
+    "input": "Yesterday we review the pull request and merge it.",
+    "expected": "Yesterday we reviewed the pull request and merged it."
+  },
+  {
+    "id": "double_words",
+    "input": "I I think this fix is fine.",
+    "expected": "I think this fix is fine."
+  },
+  {
+    "id": "comma_clause",
+    "input": "If you see any issue let me know.",
+    "expected": "If you see any issue, let me know."
+  },
+  {
+    "id": "plural_noun",
+    "input": "There are three bug in this module.",
+    "expected": "There are three bugs in this module."
+  },
+  {
+    "id": "question_form",
+    "input": "Why this model is better for grammar fixing",
+    "expected": "Why is this model better for grammar fixing?"
+  },
+  {
+    "id": "keep_style_short",
+    "input": "pls send the latest build when its ready",
+    "expected": "pls send the latest build when it's ready"
+  },
+  {
+    "id": "technical_sentence",
+    "input": "The app use the Accessibility API to read selected text and replace them back into the source app.",
+    "expected": "The app uses the Accessibility API to read selected text and replace it back into the source app."
+  },
+  {
+    "id": "contractions",
+    "input": "We cant rely on the old readme because it havent been updated.",
+    "expected": "We can't rely on the old README because it hasn't been updated."
+  },
+  {
+    "id": "list_like",
+    "input": "Fix grammar spelling punctuation and typos only",
+    "expected": "Fix grammar, spelling, punctuation, and typos only."
+  },
+  {
+    "id": "quote_preservation",
+    "input": "The button says \"settngs\" in the screenshot.",
+    "expected": "The button says \"settings\" in the screenshot."
+  },
+  {
+    "id": "multi_sentence",
+    "input": "I opened the app. it asked for accessibility permission. after that it work fine.",
+    "expected": "I opened the app. It asked for accessibility permission. After that, it worked fine."
+  },
+  {
+    "id": "email_like",
+    "input": "Hi team, Ive push the fix. Let me know if theres any issue.",
+    "expected": "Hi team, I've pushed the fix. Let me know if there's any issue."
+  },
+  {
+    "id": "dont_rephrase",
+    "input": "This feature is kinda useful but the latency are bad.",
+    "expected": "This feature is kinda useful but the latency is bad."
+  },
+  {
+    "id": "newline_preservation",
+    "input": "first line have typo\nsecond line are okay",
+    "expected": "first line has typo\nsecond line is okay"
+  },
+  {
+    "id": "markdownish",
+    "input": "Run `swift test` if you havent already.",
+    "expected": "Run `swift test` if you haven't already."
+  }
+]

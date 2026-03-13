@@ -1,0 +1,32 @@
+[
+  {
+    "id": "email_paragraph",
+    "input": "Hi team, I just looked through the latest build and there are a couple of thing we should fix before shipping. The settings window open fine, but the voice tab dont explain clearly what Parakeet does, and some of the copy feel inconsistent with the rest of the app. Also, when I tried the grammar shortcut in Notes it was working, but in Slack it replace the text in a weird way once, so I think we should test that path again before we release.",
+    "expected": "Hi team, I just looked through the latest build and there are a couple of things we should fix before shipping. The settings window opens fine, but the voice tab doesn't explain clearly what Parakeet does, and some of the copy feels inconsistent with the rest of the app. Also, when I tried the grammar shortcut in Notes it was working, but in Slack it replaced the text in a weird way once, so I think we should test that path again before we release."
+  },
+  {
+    "id": "product_feedback",
+    "input": "The app is actually pretty useful for quick writing fixes, however the first run experience still have rough edges. It ask for accessibility permission, then it ask for microphone permission later, and if ollama isnt running the model picker just look empty which may confuse people. I dont think we need a huge onboarding flow, but we probably need better defaults and clearer status copy so users know what is broken and what they need to do next.",
+    "expected": "The app is actually pretty useful for quick writing fixes; however, the first-run experience still has rough edges. It asks for Accessibility permission, then it asks for microphone permission later, and if Ollama isn't running, the model picker just looks empty, which may confuse people. I don't think we need a huge onboarding flow, but we probably need better defaults and clearer status copy so users know what is broken and what they need to do next."
+  },
+  {
+    "id": "technical_summary",
+    "input": "Rewrite uses the macOS accessibility apis to fetch selected text, then it send the prompt to a local llm endpoint and tries to write the result back into the source app. That flow works surprinsingly well, but smaller model will sometimes ignore the instruction and add extra explanations, especially when the input is long or looks like a question. If we ship a built in grammar model, the prompt need to be strict enough that it does correction only and nothing else.",
+    "expected": "Rewrite uses the macOS Accessibility APIs to fetch selected text, then it sends the prompt to a local LLM endpoint and tries to write the result back into the source app. That flow works surprisingly well, but smaller models will sometimes ignore the instruction and add extra explanations, especially when the input is long or looks like a question. If we ship a built-in grammar model, the prompt needs to be strict enough that it does correction only and nothing else."
+  },
+  {
+    "id": "multi_paragraph",
+    "input": "I think the current README explain the project much better than before, but it still dont fully show the new UI.\n\nThe popup screenshot is good and the settings screenshot is fine too, however the menu bar image probably matter more than we first thought because it shows the app is connected and what model is active. We should keep the docs short, but they still needs to make the product understandable in one pass.",
+    "expected": "I think the current README explains the project much better than before, but it still doesn't fully show the new UI.\n\nThe popup screenshot is good and the settings screenshot is fine too; however, the menu bar image probably matters more than we first thought because it shows the app is connected and what model is active. We should keep the docs short, but they still need to make the product understandable in one pass."
+  },
+  {
+    "id": "messy_request",
+    "input": "Can you check if this make sense: we want a built in grammar mode that works even when the user doesnt have ollama running locally, but we also dont want to bloat the app or ship something that rewrite the users text in a way they didnt ask for. My guess is that a small model could be okay if the prompt is good, though I am not sure if thats true once the paragraph get longer and has more than one type of mistake in it.",
+    "expected": "Can you check if this makes sense: we want a built-in grammar mode that works even when the user doesn't have Ollama running locally, but we also don't want to bloat the app or ship something that rewrites the user's text in a way they didn't ask for. My guess is that a small model could be okay if the prompt is good, though I am not sure if that's true once the paragraph gets longer and has more than one type of mistake in it."
+  },
+  {
+    "id": "markdown_and_code",
+    "input": "Please run `swift test` before merging, because the last change werent covered and it might break the prompt builder again. Also, if you touch `Prompts.swift`, make sure the grammar mode dont inherit the generic rewrite instructions, otherwise the small model may start answering the text instead of just fixing it.",
+    "expected": "Please run `swift test` before merging, because the last change wasn't covered and it might break the prompt builder again. Also, if you touch `Prompts.swift`, make sure the grammar mode doesn't inherit the generic rewrite instructions, otherwise the small model may start answering the text instead of just fixing it."
+  }
+]

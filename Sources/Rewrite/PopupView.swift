@@ -87,6 +87,20 @@ struct PopupView: View {
         }
         .padding(10)
         .frame(width: popupWidth)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+        )
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black.opacity(0.55))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
         .preferredColorScheme(.dark)
     }
 }

@@ -30,9 +30,9 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(settings.modelName, "gemma3")
     }
 
-    func testDefaultModeIdIsNil() {
+    func testDefaultModeIdIsFixGrammar() {
         let settings = Settings(defaults: testDefaults)
-        XCTAssertNil(settings.defaultModeId)
+        XCTAssertEqual(settings.defaultModeId, Settings.fixGrammarModeId)
     }
 
     func testDefaultRewriteModesCount() {
@@ -73,7 +73,7 @@ final class SettingsTests: XCTestCase {
         settings.defaultModeId = nil
 
         let settings2 = Settings(defaults: testDefaults)
-        XCTAssertNil(settings2.defaultModeId)
+        XCTAssertEqual(settings2.defaultModeId, Settings.fixGrammarModeId)
     }
 
     // MARK: - Pre-populated Defaults
@@ -107,7 +107,42 @@ final class SettingsTests: XCTestCase {
         let settings = Settings(defaults: testDefaults)
         settings.rewriteModes = modes
 
+        // Reload: migration should prepend Fix Grammar since it's missing
         let settings2 = Settings(defaults: testDefaults)
-        XCTAssertEqual(settings2.rewriteModes, modes)
+        XCTAssertEqual(settings2.rewriteModes.count, 3)
+        XCTAssertEqual(settings2.rewriteModes[0].id, Settings.fixGrammarModeId)
+        XCTAssertEqual(settings2.rewriteModes[1], modes[0])
+        XCTAssertEqual(settings2.rewriteModes[2], modes[1])
+    }
+
+    func testMigrationAddsFixGrammarToExistingModes() {
+        // Simulate existing user who has custom modes but no Fix Grammar
+        let existingModes = [
+            RewriteMode(id: UUID(), name: "Custom", prompt: "Custom prompt"),
+        ]
+        let data = try! JSONEncoder().encode(existingModes)
+        testDefaults.set(data, forKey: "rewriteModes")
+
+        let settings = Settings(defaults: testDefaults)
+        XCTAssertEqual(settings.rewriteModes.count, 2)
+        XCTAssertEqual(settings.rewriteModes[0].id, Settings.fixGrammarModeId)
+        XCTAssertEqual(settings.rewriteModes[0].name, "Fix Grammar")
+        XCTAssertEqual(settings.rewriteModes[1], existingModes[0])
+    }
+
+    func testMigrationPreservesCustomizedFixGrammarPrompt() {
+        let customPrompt = "Custom grammar prompt"
+        let existingModes = [
+            RewriteMode(
+                id: Settings.fixGrammarModeId,
+                name: "Fix Grammar",
+                prompt: customPrompt
+            ),
+        ]
+        let data = try! JSONEncoder().encode(existingModes)
+        testDefaults.set(data, forKey: "rewriteModes")
+
+        let settings = Settings(defaults: testDefaults)
+        XCTAssertEqual(settings.rewriteModes[0].prompt, customPrompt)
     }
 }

@@ -1,13 +1,11 @@
 import SwiftUI
-import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject private var settings = Settings.shared
-    @State private var availableModels: [String] = []
-    @State private var isLoadingModels = false
     @State private var isConnected = false
     @State private var hasAccessibility = false
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var audioDevices: [(id: UInt32, name: String)] = []
+    @State private var availableModels: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,35 +14,19 @@ struct SettingsView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Server URL")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                HStack {
-                    TextField("http://localhost:11434", text: $settings.serverURL)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        loadModels()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .controlSize(.small)
-                    .disabled(isLoadingModels)
-                }
-            }
-
+            // LLM Model picker
             VStack(alignment: .leading, spacing: 4) {
                 Text("Model")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 if availableModels.isEmpty {
-                    HStack(spacing: 6) {
-                        TextField("gemma3", text: $settings.modelName)
-                            .textFieldStyle(.roundedBorder)
-                        if isLoadingModels {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 6, height: 6)
+                        Text("Not connected")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 } else {
                     Picker("", selection: $settings.modelName) {
@@ -53,41 +35,23 @@ struct SettingsView: View {
                         }
                     }
                     .labelsHidden()
+                    .controlSize(.small)
                 }
             }
 
-            HStack {
-                Text("Rewrite Modes")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("Configure...") {
-                    RewriteModesWindow.show()
-                }
-                .controlSize(.small)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Shortcuts (click to change)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                ShortcutRecorder(label: "Quick Fix", shortcut: $settings.grammarShortcut)
-                ShortcutRecorder(label: "Rewrite Modes", shortcut: $settings.rewriteShortcut)
-            }
-
+            // Microphone picker
             VStack(alignment: .leading, spacing: 4) {
-                Text("Default Mode (Quick Fix shortcut)")
+                Text("Microphone")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Picker("", selection: defaultModeBinding) {
-                    Text("Fix Grammar").tag("")
-                    ForEach(settings.rewriteModes) { mode in
-                        Text(mode.name).tag(mode.id.uuidString)
+                Picker("", selection: $settings.selectedMicDeviceID) {
+                    Text("System Default").tag(UInt32(0))
+                    ForEach(audioDevices, id: \.id) { device in
+                        Text(device.name).tag(device.id)
                     }
                 }
                 .labelsHidden()
+                .controlSize(.small)
             }
 
             Divider()
@@ -95,55 +59,32 @@ struct SettingsView: View {
             HStack {
                 Circle()
                     .fill(isConnected ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 6, height: 6)
                 Text(isConnected ? "Connected" : "Disconnected")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
-            }
 
-            HStack {
+                Spacer()
+
                 Circle()
                     .fill(hasAccessibility ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                Text(hasAccessibility ? "Accessibility OK" : "Accessibility Required")
-                    .font(.caption)
+                    .frame(width: 6, height: 6)
+                Text(hasAccessibility ? "Accessibility" : "No Access")
+                    .font(.caption2)
                     .foregroundColor(.secondary)
-
-                if !hasAccessibility {
-                    Spacer()
-                    Button("Grant") {
-                        AccessibilityService.requestPermission()
-                    }
-                    .controlSize(.small)
-                    Button("Relaunch") {
-                        relaunchApp()
-                    }
-                    .controlSize(.small)
-                }
             }
 
             Divider()
 
-            Toggle("Launch at Login", isOn: $launchAtLogin)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .onChange(of: launchAtLogin) { enabled in
-                    do {
-                        if enabled {
-                            try SMAppService.mainApp.register()
-                        } else {
-                            try SMAppService.mainApp.unregister()
-                        }
-                    } catch {
-                        launchAtLogin = SMAppService.mainApp.status == .enabled
-                    }
-                }
-
             HStack {
+                Button("Settings...") {
+                    SettingsWindow.show()
+                }
+                .controlSize(.small)
+
                 Spacer()
+
                 Button("Quit") {
-                    // Close the settings panel first, then terminate on next
-                    // run loop pass to avoid hanging with nonactivatingPanel.
                     if let panel = NSApp.windows.first(where: { $0 is NSPanel && $0.isVisible }) {
                         panel.orderOut(nil)
                     }
@@ -155,7 +96,7 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 320)
+        .frame(width: 260)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(.ultraThickMaterial)
@@ -163,40 +104,12 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .preferredColorScheme(.dark)
         .onAppear {
-            loadModels()
             hasAccessibility = AccessibilityService.isTrusted()
-        }
-    }
-
-    private var defaultModeBinding: Binding<String> {
-        Binding(
-            get: { settings.defaultModeId?.uuidString ?? "" },
-            set: { newValue in
-                settings.defaultModeId = newValue.isEmpty ? nil : UUID(uuidString: newValue)
-            }
-        )
-    }
-
-    private func relaunchApp() {
-        let url = Bundle.main.bundleURL
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", url.path]
-        try? task.run()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.terminate(nil)
-        }
-    }
-
-    private func loadModels() {
-        isLoadingModels = true
-        LLMService.shared.fetchModels { models in
-            DispatchQueue.main.async {
-                availableModels = models
-                isConnected = !models.isEmpty
-                isLoadingModels = false
-                if !models.isEmpty && !models.contains(settings.modelName) {
-                    settings.modelName = models[0]
+            audioDevices = SpeechService.availableInputDevices()
+            LLMService.shared.fetchModels { models in
+                DispatchQueue.main.async {
+                    availableModels = models
+                    isConnected = !models.isEmpty
                 }
             }
         }
