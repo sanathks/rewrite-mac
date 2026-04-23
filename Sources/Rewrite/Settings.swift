@@ -123,8 +123,11 @@ final class Settings: ObservableObject {
         didSet { defaults.set(autoGrammarOnSTT, forKey: "autoGrammarOnSTT") }
     }
 
-    @Published var selectedMicDeviceID: UInt32 {
-        didSet { defaults.set(selectedMicDeviceID, forKey: "selectedMicDeviceID") }
+    /// Stable UID of the selected input device (e.g. "AppleUSBAudioEngine:..."),
+    /// or empty string for "System Default". Stored as UID rather than AudioDeviceID
+    /// because AudioDeviceID is reassigned on every unplug/replug.
+    @Published var selectedMicUID: String {
+        didSet { defaults.set(selectedMicUID, forKey: "selectedMicUID") }
     }
 
     @Published var hasCompletedOnboarding: Bool {
@@ -237,8 +240,17 @@ final class Settings: ObservableObject {
             self.autoGrammarOnSTT = true
         }
 
-        // Selected mic device ID (default: 0 = system default)
-        self.selectedMicDeviceID = UInt32(defaults.integer(forKey: "selectedMicDeviceID"))
+        // Selected mic UID (default: "" = system default).
+        // Migrate from legacy "selectedMicDeviceID": discard the old numeric ID
+        // since it would not match the device after a reconnect anyway.
+        if let uid = defaults.string(forKey: "selectedMicUID") {
+            self.selectedMicUID = uid
+        } else {
+            self.selectedMicUID = ""
+            if defaults.object(forKey: "selectedMicDeviceID") != nil {
+                defaults.removeObject(forKey: "selectedMicDeviceID")
+            }
+        }
 
         self.hasCompletedOnboarding = defaults.bool(forKey: "hasCompletedOnboarding")
 

@@ -154,8 +154,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let micItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
         let defaultMicItem = NSMenuItem(title: "System Default", action: #selector(selectMic(_:)), keyEquivalent: "")
         defaultMicItem.target = self
-        defaultMicItem.tag = 0
-        if settings.selectedMicDeviceID == 0 {
+        defaultMicItem.representedObject = ""
+        if settings.selectedMicUID.isEmpty {
             defaultMicItem.state = .on
         }
         micMenu.addItem(defaultMicItem)
@@ -165,8 +165,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         for device in devices {
             let item = NSMenuItem(title: device.name, action: #selector(selectMic(_:)), keyEquivalent: "")
             item.target = self
-            item.tag = Int(device.id)
-            if device.id == settings.selectedMicDeviceID {
+            item.representedObject = device.uid
+            if device.uid == settings.selectedMicUID {
                 item.state = .on
             }
             micMenu.addItem(item)
@@ -216,7 +216,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func selectMic(_ sender: NSMenuItem) {
-        Settings.shared.selectedMicDeviceID = UInt32(sender.tag)
+        Settings.shared.selectedMicUID = (sender.representedObject as? String) ?? ""
     }
 
     @objc private func openSettingsMenu() {

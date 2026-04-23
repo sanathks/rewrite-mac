@@ -54,9 +54,8 @@ final class ParakeetEngine {
         isRecording = true
 
         let settings = Settings.shared
-        let deviceID: AudioDeviceID? = settings.selectedMicDeviceID != 0
-            ? settings.selectedMicDeviceID
-            : nil
+        let resolved = SpeechService.deviceID(forUID: settings.selectedMicUID)
+        let deviceID: AudioDeviceID? = resolved != 0 ? resolved : nil
         audioCapture.onAudioLevel = { [weak self] level in
             self?.onAudioLevel?(level)
         }

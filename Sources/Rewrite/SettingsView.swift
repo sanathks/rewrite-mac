@@ -4,7 +4,7 @@ struct SettingsView: View {
     @ObservedObject private var settings = Settings.shared
     @State private var isConnected = false
     @State private var hasAccessibility = false
-    @State private var audioDevices: [(id: UInt32, name: String)] = []
+    @State private var audioDevices: [(id: UInt32, uid: String, name: String)] = []
     @State private var availableModels: [String] = []
 
     var body: some View {
@@ -44,10 +44,10 @@ struct SettingsView: View {
                 Text("Microphone")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Picker("", selection: $settings.selectedMicDeviceID) {
-                    Text("System Default").tag(UInt32(0))
-                    ForEach(audioDevices, id: \.id) { device in
-                        Text(device.name).tag(device.id)
+                Picker("", selection: $settings.selectedMicUID) {
+                    Text("System Default").tag("")
+                    ForEach(audioDevices, id: \.uid) { device in
+                        Text(device.name).tag(device.uid)
                     }
                 }
                 .labelsHidden()

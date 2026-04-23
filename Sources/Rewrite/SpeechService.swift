@@ -168,7 +168,32 @@ final class SpeechService {
 
     // MARK: - Audio Devices
 
-    static func availableInputDevices() -> [(id: AudioDeviceID, name: String)] {
+    /// Look up the stable UID for an AudioDeviceID. Returns nil if the device
+    /// has no UID or no longer exists.
+    static func deviceUID(for deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var uidRef: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uidRef)
+        guard status == noErr, let cfUID = uidRef?.takeRetainedValue() else { return nil }
+        return cfUID as String
+    }
+
+    /// Resolve a stored UID to the current AudioDeviceID. Returns 0 if the
+    /// device is not currently connected.
+    static func deviceID(forUID uid: String) -> AudioDeviceID {
+        guard !uid.isEmpty else { return 0 }
+        for device in availableInputDevices() where device.uid == uid {
+            return device.id
+        }
+        return 0
+    }
+
+    static func availableInputDevices() -> [(id: AudioDeviceID, uid: String, name: String)] {
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -195,7 +220,7 @@ final class SpeechService {
         )
         guard status == noErr else { return [] }
 
-        var result: [(id: AudioDeviceID, name: String)] = []
+        var result: [(id: AudioDeviceID, uid: String, name: String)] = []
         for deviceID in deviceIDs {
             var streamAddress = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyStreamConfiguration,
@@ -226,7 +251,8 @@ final class SpeechService {
             status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameRef)
             guard status == noErr, let cfName = nameRef?.takeUnretainedValue() else { continue }
 
-            result.append((id: deviceID, name: cfName as String))
+            guard let uid = deviceUID(for: deviceID) else { continue }
+            result.append((id: deviceID, uid: uid, name: cfName as String))
         }
 
         return result
@@ -299,10 +325,10 @@ final class WhisperKitEngine {
         accumulatedText = ""
         isRecording = true
 
-        // Start audio capture immediately (engine may already be warm)
-        let deviceID: AudioDeviceID? = settings.selectedMicDeviceID != 0
-            ? settings.selectedMicDeviceID
-            : nil
+        // Start audio capture immediately (engine may already be warm).
+        // Resolve UID → current AudioDeviceID (IDs change across reconnects).
+        let resolved = SpeechService.deviceID(forUID: settings.selectedMicUID)
+        let deviceID: AudioDeviceID? = resolved != 0 ? resolved : nil
         audioCapture.onAudioLevel = { [weak self] level in
             self?.onAudioLevel?(level)
         }

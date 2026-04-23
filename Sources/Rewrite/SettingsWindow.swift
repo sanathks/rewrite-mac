@@ -78,7 +78,7 @@ private struct SettingsContentView: View {
     @State private var isDownloadingModel = false
     @State private var downloadProgress: Double = 0
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var audioDevices: [(id: UInt32, name: String)] = []
+    @State private var audioDevices: [(id: UInt32, uid: String, name: String)] = []
     @State private var selectedTab: SettingsTab = .general
     private let recommendedModelName = "gemma3:4b"
 
@@ -439,10 +439,10 @@ private struct SettingsContentView: View {
                     Text("Microphone")
                         .font(.subheadline)
                     Spacer()
-                    Picker("", selection: $settings.selectedMicDeviceID) {
-                        Text("System Default").tag(UInt32(0))
-                        ForEach(audioDevices, id: \.id) { device in
-                            Text(device.name).tag(device.id)
+                    Picker("", selection: $settings.selectedMicUID) {
+                        Text("System Default").tag("")
+                        ForEach(audioDevices, id: \.uid) { device in
+                            Text(device.name).tag(device.uid)
                         }
                     }
                     .labelsHidden()
