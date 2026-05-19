@@ -48,6 +48,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await EmbeddedLLMService.shared.prewarm() }
         }
 
+        // Quick launcher (hold prefix → key → app). Requires Accessibility,
+        // which the rest of the app already needs. install() is a no-op
+        // when the privilege isn't granted yet — re-call after user
+        // approves via the onboarding wizard.
+        if Settings.shared.launcherEnabled {
+            LauncherEngine.shared.install()
+        }
+
         // Show onboarding wizard on first launch
         if !Settings.shared.hasCompletedOnboarding {
             DispatchQueue.main.async {
