@@ -6,7 +6,7 @@ import Foundation
 /// Avoids AVAudioEngine which triggers macOS audio routing reconfiguration
 /// (causing a visible pause in video/audio playback).
 /// The unit stays alive between recording sessions with a cooldown timer.
-/// Samples are resampled to 16kHz mono Float32 for WhisperKit.
+/// Samples are resampled to 16kHz mono Float32 for the STT engine.
 final class AudioCapture {
     fileprivate var audioUnit: AudioComponentInstance?
     private var isCapturing = false
@@ -222,7 +222,7 @@ final class AudioCapture {
 
     fileprivate func processAudio(
         inUnit: AudioComponentInstance,
-        ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+        ioActionFlags: UnsafeMutablePointer<UInt32>,
         inTimeStamp: UnsafePointer<AudioTimeStamp>,
         inBusNumber: UInt32,
         inNumberFrames: UInt32
@@ -276,7 +276,7 @@ final class AudioCapture {
 
         // Resample to 16kHz
         let resampled: [Float]
-        if abs(hwSampleRate - Self.targetSampleRate) < 1.0 {
+        if Swift.abs(hwSampleRate - Self.targetSampleRate) < 1.0 {
             resampled = mono
         } else {
             resampled = resample(mono: mono)
@@ -327,7 +327,7 @@ final class AudioCapture {
 // C callback — bridges to the AudioCapture instance
 private func audioInputCallback(
     inRefCon: UnsafeMutableRawPointer,
-    ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+    ioActionFlags: UnsafeMutablePointer<UInt32>,
     inTimeStamp: UnsafePointer<AudioTimeStamp>,
     inBusNumber: UInt32,
     inNumberFrames: UInt32,

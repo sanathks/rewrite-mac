@@ -23,6 +23,19 @@ enum Prompts {
     %@
     """
 
+    /// Wraps the user's custom voice post-processing prompt with the raw
+    /// transcript. Kept deliberately minimal — the user-supplied prompt is the
+    /// whole instruction; we just append the transcript clearly separated.
+    static func voicePostProcess(prompt: String, transcript: String) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        \(trimmed)
+
+        Transcript:
+        \(transcript)
+        """
+    }
+
     static func rewrite(mode: RewriteMode, text: String) -> String {
         if mode.id == Settings.fixGrammarModeId {
             return String(format: fixGrammarPrompt, text)

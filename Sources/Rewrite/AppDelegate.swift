@@ -284,14 +284,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         func runMode(_ mode: RewriteMode) {
             let prompt = Prompts.rewrite(mode: mode, text: text)
-            LLMService.shared.generate(prompt: prompt) { result in
-                switch result {
-                case .success(let rewritten):
-                    panel.updateResult(rewritten)
-                case .failure(let err):
-                    panel.updateError(err.localizedDescription)
+            let modelName = LLMService.activeModelLabel
+            let handle = LLMService.shared.generateStream(
+                prompt: prompt,
+                onChunk: { chunk in
+                    panel.appendChunk(chunk, modelName: modelName)
+                },
+                onComplete: { result in
+                    switch result {
+                    case .success:
+                        panel.completeStream(modelName: modelName)
+                    case .failure(let err):
+                        panel.updateError(err.localizedDescription)
+                    }
                 }
-            }
+            )
+            panel.setActiveStream(handle)
         }
 
         panel.show(
@@ -396,12 +404,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             let settings = Settings.shared
 
-            if settings.autoGrammarOnSTT {
+            let userPrompt = settings.voicePostProcessPrompt
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if settings.voicePostProcessEnabled && !userPrompt.isEmpty {
                 self.recordingIndicator.showProcessing()
 
-                let mode = settings.rewriteModes.first(where: { $0.id == Settings.fixGrammarModeId })
-                    ?? settings.rewriteModes[0]
-                let prompt = Prompts.rewrite(mode: mode, text: transcribedText)
+                let prompt = Prompts.voicePostProcess(
+                    prompt: userPrompt,
+                    transcript: transcribedText
+                )
 
                 LLMService.shared.generate(prompt: prompt) { result in
                     DispatchQueue.main.async {

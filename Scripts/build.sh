@@ -42,6 +42,22 @@ if [ -z "$BINARY" ]; then
 fi
 
 cp "$BINARY" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+
+# Bundle dynamic frameworks the binary links against (e.g. llama.framework
+# from the LocalLLMClient XCFramework). Look beside the binary first; fall back
+# to the platform-specific slice inside the XCFramework artifact directory.
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+BINARY_DIR="$(dirname "$BINARY")"
+LLAMA_FW=""
+if [ -d "$BINARY_DIR/llama.framework" ]; then
+    LLAMA_FW="$BINARY_DIR/llama.framework"
+elif [ -d "$PROJECT_DIR/.build/artifacts/localllmclient/LocalLLMClientLlamaFramework/llama.xcframework/macos-arm64_x86_64/llama.framework" ]; then
+    LLAMA_FW="$PROJECT_DIR/.build/artifacts/localllmclient/LocalLLMClientLlamaFramework/llama.xcframework/macos-arm64_x86_64/llama.framework"
+fi
+if [ -n "$LLAMA_FW" ]; then
+    cp -R "$LLAMA_FW" "$APP_BUNDLE/Contents/Frameworks/"
+fi
+
 cp "$PROJECT_DIR/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$PROJECT_DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$PROJECT_DIR/Resources/icon.png" "$APP_BUNDLE/Contents/Resources/icon.png"

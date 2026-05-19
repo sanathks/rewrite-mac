@@ -116,6 +116,7 @@ Both download their models on demand from Settings.
 ```bash
 git clone https://github.com/sanathks/rewrite-mac.git
 cd rewrite-mac
+bash Scripts/bootstrap.sh   # fetches llama.cpp sources (not tracked in git)
 bash Scripts/build.sh
 ```
 

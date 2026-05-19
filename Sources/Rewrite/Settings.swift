@@ -29,40 +29,46 @@ struct RewriteMode: Codable, Identifiable, Equatable {
     var prompt: String
 }
 
-enum STTEngine: String, CaseIterable, Identifiable {
-    case whisperKit = "whisperKit"
-    case parakeet = "parakeet"
+enum LLMProvider: String, CaseIterable, Identifiable {
+    case embedded
+    case remote
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .whisperKit: return "WhisperKit"
-        case .parakeet: return "Parakeet TDT"
+        case .embedded: return "On-device (Gemma 4)"
+        case .remote: return "Remote server (Ollama / LM Studio)"
         }
     }
 }
 
-enum WhisperModelSize: String, CaseIterable, Identifiable {
-    case tiny = "tiny"
-    case small = "small"
-    case largeTurbo = "large-v3_turbo"
+/// Locally-runnable Gemma 4 variants exposed in Settings.
+/// Each case maps to a HuggingFace GGUF repo + filename for the llama.cpp backend.
+enum EmbeddedLLMModel: String, CaseIterable, Identifiable {
+    case e2b4bit
+    case e4b4bit
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .tiny: return "Tiny (~75 MB)"
-        case .small: return "Small (~220 MB)"
-        case .largeTurbo: return "Large v3 Turbo (~630 MB)"
+        case .e2b4bit: return "Gemma 4 E2B (Q4_K_M, ~3 GB)"
+        case .e4b4bit: return "Gemma 4 E4B (Q4_K_M, ~5 GB)"
         }
     }
 
-    var whisperKitModelName: String {
+    var huggingFaceRepo: String {
         switch self {
-        case .tiny: return "openai_whisper-tiny"
-        case .small: return "openai_whisper-small"
-        case .largeTurbo: return "openai_whisper-large-v3_turbo"
+        case .e2b4bit: return "unsloth/gemma-4-E2B-it-GGUF"
+        case .e4b4bit: return "ggml-org/gemma-4-E4B-it-GGUF"
+        }
+    }
+
+    var ggufFilename: String {
+        switch self {
+        case .e2b4bit: return "gemma-4-E2B-it-Q4_K_M.gguf"
+        case .e4b4bit: return "gemma-4-E4B-it-Q4_K_M.gguf"
         }
     }
 }
@@ -74,6 +80,14 @@ final class Settings: ObservableObject {
         "Fix grammar, spelling, punctuation, capitalization, verb agreement, and obvious typos only. Preserve meaning, tone, sentence order, and paragraph breaks. Do not rewrite for style or clarity. Do not shorten, summarize, or add commentary. Return only the corrected text."
 
     let defaults: UserDefaults
+
+    @Published var llmProvider: LLMProvider {
+        didSet { defaults.set(llmProvider.rawValue, forKey: "llmProvider") }
+    }
+
+    @Published var embeddedModel: EmbeddedLLMModel {
+        didSet { defaults.set(embeddedModel.rawValue, forKey: "embeddedModel") }
+    }
 
     @Published var serverURL: String {
         didSet { defaults.set(serverURL, forKey: "ollamaURL") }
@@ -111,17 +125,16 @@ final class Settings: ObservableObject {
         }
     }
 
-    @Published var sttEngine: STTEngine {
-        didSet { defaults.set(sttEngine.rawValue, forKey: "sttEngine") }
+    @Published var voicePostProcessEnabled: Bool {
+        didSet { defaults.set(voicePostProcessEnabled, forKey: "autoGrammarOnSTT") }
     }
 
-    @Published var whisperModelSize: WhisperModelSize {
-        didSet { defaults.set(whisperModelSize.rawValue, forKey: "whisperModelSize") }
+    @Published var voicePostProcessPrompt: String {
+        didSet { defaults.set(voicePostProcessPrompt, forKey: "voicePostProcessPrompt") }
     }
 
-    @Published var autoGrammarOnSTT: Bool {
-        didSet { defaults.set(autoGrammarOnSTT, forKey: "autoGrammarOnSTT") }
-    }
+    static let defaultVoicePostProcessPrompt =
+        "Clean up the following voice transcription. Fix grammar, punctuation, and capitalization. Remove filler words (um, uh, like, you know, sort of). Preserve the speaker's meaning and intent — do not paraphrase, summarize, or add information. Return only the cleaned text with no preamble or commentary."
 
     /// Stable UID of the selected input device (e.g. "AppleUSBAudioEngine:..."),
     /// or empty string for "System Default". Stored as UID rather than AudioDeviceID
@@ -184,6 +197,23 @@ final class Settings: ObservableObject {
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
+
+        // LLM provider — default to embedded for new installs.
+        if let raw = defaults.string(forKey: "llmProvider"),
+           let provider = LLMProvider(rawValue: raw) {
+            self.llmProvider = provider
+        } else {
+            self.llmProvider = .embedded
+        }
+
+        // Embedded model — default to E4B 4-bit (best quality/size tradeoff).
+        if let raw = defaults.string(forKey: "embeddedModel"),
+           let model = EmbeddedLLMModel(rawValue: raw) {
+            self.embeddedModel = model
+        } else {
+            self.embeddedModel = .e4b4bit
+        }
+
         self.serverURL = defaults.string(forKey: "ollamaURL") ?? "http://localhost:11434"
         self.modelName = defaults.string(forKey: "modelName") ?? "gemma3:4b"
 
@@ -217,28 +247,16 @@ final class Settings: ObservableObject {
             ?? UInt32(controlKey | optionKey)
         self.handsFreeShortcut = Shortcut(keyCode: hfCode, modifiers: hfMods)
 
-        // STT engine (migrate moonshine -> whisperKit)
-        if let engineStr = defaults.string(forKey: "sttEngine"),
-           let engine = STTEngine(rawValue: engineStr) {
-            self.sttEngine = engine
-        } else {
-            self.sttEngine = .whisperKit
-        }
-
-        // Whisper model size
-        if let whisperStr = defaults.string(forKey: "whisperModelSize"),
-           let size = WhisperModelSize(rawValue: whisperStr) {
-            self.whisperModelSize = size
-        } else {
-            self.whisperModelSize = .largeTurbo
-        }
-
-        // Auto grammar correction after STT (default: true)
+        // Post-process voice transcript through the LLM (default: true).
+        // UserDefaults key is the legacy "autoGrammarOnSTT" for back-compat.
         if defaults.object(forKey: "autoGrammarOnSTT") != nil {
-            self.autoGrammarOnSTT = defaults.bool(forKey: "autoGrammarOnSTT")
+            self.voicePostProcessEnabled = defaults.bool(forKey: "autoGrammarOnSTT")
         } else {
-            self.autoGrammarOnSTT = true
+            self.voicePostProcessEnabled = true
         }
+
+        self.voicePostProcessPrompt = defaults.string(forKey: "voicePostProcessPrompt")
+            ?? Settings.defaultVoicePostProcessPrompt
 
         // Selected mic UID (default: "" = system default).
         // Migrate from legacy "selectedMicDeviceID": discard the old numeric ID

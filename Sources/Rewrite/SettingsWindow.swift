@@ -77,22 +77,28 @@ private struct SettingsContentView: View {
     @State private var isModelDownloaded = false
     @State private var isDownloadingModel = false
     @State private var downloadProgress: Double = 0
+    @State private var embeddedStatus: EmbeddedModelStatus = .notDownloaded
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var audioDevices: [(id: UInt32, uid: String, name: String)] = []
     @State private var selectedTab: SettingsTab = .general
     private let recommendedModelName = "gemma3:4b"
 
-    private var engineDescription: String {
-        switch settings.sttEngine {
-        case .whisperKit:
-            return "OpenAI Whisper on Apple Neural Engine. Streams words as you speak. Great multilingual accuracy with larger models."
-        case .parakeet:
-            return "NVIDIA Parakeet TDT. Best English accuracy (~6% WER), 10x faster than Whisper. Transcribes after recording ends (no live preview). Supports custom vocabulary boosting."
+    private let engineDescription =
+        "NVIDIA Parakeet TDT. Best English accuracy (~6% WER), fast on Apple Silicon. Transcribes after recording ends. Supports custom vocabulary boosting."
+
+    private var isLLMReady: Bool {
+        switch settings.llmProvider {
+        case .remote: return isConnected
+        case .embedded:
+            switch embeddedStatus {
+            case .downloaded, .ready, .loading: return true
+            default: return false
+            }
         }
     }
 
     private var needsOnboarding: Bool {
-        !hasAccessibility || !isConnected
+        !hasAccessibility || !isLLMReady
     }
 
     private func modelLabel(for model: String) -> String {
@@ -120,10 +126,10 @@ private struct SettingsContentView: View {
                 // Status footer - always visible
                 VStack(alignment: .leading, spacing: 6) {
                     StatusRow(
-                        label: "LLM Server",
-                        isOK: isConnected,
-                        okText: "Connected",
-                        failText: "Disconnected"
+                        label: settings.llmProvider == .embedded ? "Gemma 4" : "LLM Server",
+                        isOK: isLLMReady,
+                        okText: settings.llmProvider == .embedded ? "Ready" : "Connected",
+                        failText: settings.llmProvider == .embedded ? "Not downloaded" : "Disconnected"
                     )
                     StatusRow(
                         label: "Accessibility",
@@ -160,6 +166,11 @@ private struct SettingsContentView: View {
             hasMicrophone = SpeechService.hasMicrophonePermission
             checkModelStatus()
             audioDevices = SpeechService.availableInputDevices()
+            Task {
+                await EmbeddedLLMService.shared.observe { status in
+                    embeddedStatus = status
+                }
+            }
         }
     }
 
@@ -197,26 +208,60 @@ private struct SettingsContentView: View {
                     }
                 }
 
-                // Step 2: LLM Server
+                // Step 2: LLM (provider-aware)
                 OnboardingStep(
                     number: 2,
-                    title: "Connect to LLM Server",
-                    description: "Install Ollama or LM Studio and start the server.",
-                    isComplete: isConnected
+                    title: settings.llmProvider == .embedded
+                        ? "Download Gemma 4 model"
+                        : "Connect to LLM Server",
+                    description: settings.llmProvider == .embedded
+                        ? "Run Gemma 4 on-device via llama.cpp. The model file is ~3–5 GB depending on the variant you pick."
+                        : "Install Ollama or LM Studio and start the server.",
+                    isComplete: isLLMReady
                 ) {
-                    if !isConnected {
-                        HStack(spacing: 8) {
-                            TextField("http://localhost:11434", text: $settings.serverURL)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 200)
-                            Button("Connect") {
-                                loadModels()
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Provider", selection: $settings.llmProvider) {
+                            ForEach(LLMProvider.allCases) { provider in
+                                Text(provider.displayName).tag(provider)
                             }
-                            .controlSize(.small)
-                            .disabled(isLoadingModels)
-                            if isLoadingModels {
-                                ProgressView()
-                                    .controlSize(.small)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 360)
+                        .onChange(of: settings.llmProvider) { provider in
+                            if provider == .remote {
+                                loadModels()
+                            } else {
+                                Task { await EmbeddedLLMService.shared.refreshStatus() }
+                            }
+                        }
+
+                        if settings.llmProvider == .embedded {
+                            Picker("Model", selection: $settings.embeddedModel) {
+                                ForEach(EmbeddedLLMModel.allCases) { model in
+                                    Text(model.displayName).tag(model)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 360)
+                            .onChange(of: settings.embeddedModel) { _ in
+                                Task { await EmbeddedLLMService.shared.refreshStatus() }
+                            }
+                            embeddedStatusView
+                        } else if !isConnected {
+                            HStack(spacing: 8) {
+                                TextField("http://localhost:11434", text: $settings.serverURL)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 200)
+                                Button("Connect") {
+                                    loadModels()
+                                }
+                                .controlSize(.small)
+                                .disabled(isLoadingModels)
+                                if isLoadingModels {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
                             }
                         }
                     }
@@ -225,7 +270,7 @@ private struct SettingsContentView: View {
 
             Spacer()
 
-            if hasAccessibility && isConnected {
+            if hasAccessibility && isLLMReady {
                 Text("Setup complete. Select a section from the sidebar to configure settings.")
                     .font(.subheadline)
                     .foregroundColor(.green)
@@ -256,47 +301,29 @@ private struct SettingsContentView: View {
                 .fontWeight(.semibold)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Server URL")
+                Text("Provider")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                HStack {
-                    TextField("http://localhost:11434", text: $settings.serverURL)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        loadModels()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                Picker("", selection: $settings.llmProvider) {
+                    ForEach(LLMProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
                     }
-                    .controlSize(.small)
-                    .disabled(isLoadingModels)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .onChange(of: settings.llmProvider) { provider in
+                    if provider == .remote {
+                        loadModels()
+                    } else {
+                        Task { await EmbeddedLLMService.shared.refreshStatus() }
+                    }
                 }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Model")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                if availableModels.isEmpty {
-                    HStack(spacing: 6) {
-                        TextField("gemma3:4b", text: $settings.modelName)
-                            .textFieldStyle(.roundedBorder)
-                        if isLoadingModels {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                } else {
-                    Picker("", selection: $settings.modelName) {
-                        ForEach(availableModels, id: \.self) { model in
-                            Text(modelLabel(for: model)).tag(model)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Text(recommendedModelHint)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+            if settings.llmProvider == .embedded {
+                embeddedProviderSection
+            } else {
+                remoteProviderSection
             }
 
             Toggle("Launch at Login", isOn: $launchAtLogin)
@@ -357,22 +384,6 @@ private struct SettingsContentView: View {
                 .fontWeight(.semibold)
 
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Engine")
-                        .font(.subheadline)
-                    Spacer()
-                    Picker("", selection: $settings.sttEngine) {
-                        ForEach(STTEngine.allCases) { engine in
-                            Text(engine.displayName).tag(engine)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 200)
-                    .onChange(of: settings.sttEngine) { _ in
-                        checkModelStatus()
-                    }
-                }
-
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "info.circle")
                         .foregroundColor(.secondary)
@@ -384,31 +395,13 @@ private struct SettingsContentView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if settings.sttEngine == .whisperKit {
-                    HStack {
-                        Text("Model")
-                            .font(.subheadline)
-                        Spacer()
-                        Picker("", selection: $settings.whisperModelSize) {
-                            ForEach(WhisperModelSize.allCases) { size in
-                                Text(size.displayName).tag(size)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 200)
-                        .onChange(of: settings.whisperModelSize) { _ in
-                            checkModelStatus()
-                        }
-                    }
-                } else {
-                    HStack {
-                        Text("Model")
-                            .font(.subheadline)
-                        Spacer()
-                        Text("Parakeet TDT 0.6B INT8 (~640 MB)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
+                HStack {
+                    Text("Model")
+                        .font(.subheadline)
+                    Spacer()
+                    Text("Parakeet TDT 0.6B INT8 (~640 MB)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
                 }
 
                 HStack {
@@ -449,8 +442,38 @@ private struct SettingsContentView: View {
                     .frame(width: 200)
                 }
 
-                Toggle("Auto Grammar Fix", isOn: $settings.autoGrammarOnSTT)
-                    .toggleStyle(.switch)
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Post-process transcript with LLM", isOn: $settings.voicePostProcessEnabled)
+                        .toggleStyle(.switch)
+
+                    Text("Pipes the raw transcript through the LLM using the prompt below. Useful for cleaning filler words, fixing punctuation, or any custom transformation.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if settings.voicePostProcessEnabled {
+                        TextEditor(text: $settings.voicePostProcessPrompt)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 120, maxHeight: 200)
+                            .padding(4)
+                            .background(Color(NSColor.textBackgroundColor))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                            )
+
+                        HStack {
+                            Spacer()
+                            Button("Reset to default") {
+                                settings.voicePostProcessPrompt = Settings.defaultVoicePostProcessPrompt
+                            }
+                            .controlSize(.small)
+                            .disabled(settings.voicePostProcessPrompt == Settings.defaultVoicePostProcessPrompt)
+                        }
+                    }
+                }
 
                 HStack {
                     Circle()
@@ -474,6 +497,129 @@ private struct SettingsContentView: View {
 
             Spacer()
         }
+        }
+    }
+
+    // MARK: - Provider sections
+
+    private var remoteProviderSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Server URL")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                HStack {
+                    TextField("http://localhost:11434", text: $settings.serverURL)
+                        .textFieldStyle(.roundedBorder)
+                    Button {
+                        loadModels()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .controlSize(.small)
+                    .disabled(isLoadingModels)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Model")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                if availableModels.isEmpty {
+                    HStack(spacing: 6) {
+                        TextField("gemma3:4b", text: $settings.modelName)
+                            .textFieldStyle(.roundedBorder)
+                        if isLoadingModels {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                } else {
+                    Picker("", selection: $settings.modelName) {
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(modelLabel(for: model)).tag(model)
+                        }
+                    }
+                    .labelsHidden()
+
+                    Text(recommendedModelHint)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var embeddedProviderSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Model")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Picker("", selection: $settings.embeddedModel) {
+                    ForEach(EmbeddedLLMModel.allCases) { model in
+                        Text(model.displayName).tag(model)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: settings.embeddedModel) { _ in
+                    Task { await EmbeddedLLMService.shared.refreshStatus() }
+                }
+                Text("Runs on-device via Apple MLX. Weights download to ~/Library/Caches/models.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            embeddedStatusView
+        }
+    }
+
+    @ViewBuilder
+    private var embeddedStatusView: some View {
+        switch embeddedStatus {
+        case .notDownloaded:
+            HStack(spacing: 8) {
+                Button("Download Model") {
+                    Task { await EmbeddedLLMService.shared.downloadSelectedModel() }
+                }
+                .controlSize(.small)
+                Text("Not downloaded")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .downloading(let fraction):
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: fraction)
+                Text("\(Int(fraction * 100))% downloaded")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .downloaded:
+            HStack(spacing: 6) {
+                Circle().fill(Color.green).frame(width: 6, height: 6)
+                Text("Downloaded · ready to use")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .loading:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Loading model into memory…")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .ready:
+            HStack(spacing: 6) {
+                Circle().fill(Color.green).frame(width: 6, height: 6)
+                Text("Loaded and ready")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .error(let message):
+            Text(message)
+                .font(.caption)
+                .foregroundColor(.red)
         }
     }
 

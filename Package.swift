@@ -9,17 +9,21 @@ let package = Package(
         .macOS(.v14)
     ],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
         .package(path: "vendor/sherpa-onnx"),
+        .package(path: "vendor/LocalLLMClient"),
     ],
     targets: [
         .executableTarget(
             name: "Rewrite",
             dependencies: [
-                .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "SherpaOnnxSwift", package: "sherpa-onnx"),
+                .product(name: "LocalLLMClient", package: "LocalLLMClient"),
+                .product(name: "LocalLLMClientLlama", package: "LocalLLMClient"),
             ],
             path: "Sources/Rewrite",
+            swiftSettings: [
+                .interoperabilityMode(.Cxx)
+            ],
             linkerSettings: [
                 .linkedLibrary("c++"),
                 .unsafeFlags([
@@ -27,6 +31,9 @@ let package = Package(
                     "-Xlinker", "vendor/sherpa-onnx/lib/libsherpa-onnx.a",
                     "-Xlinker", "-force_load",
                     "-Xlinker", "vendor/sherpa-onnx/lib/libonnxruntime.a",
+                    // llama.framework (from LocalLLMClient's XCFramework) is
+                    // bundled at Contents/Frameworks/ by Scripts/build.sh.
+                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
                 ])
             ]
         ),

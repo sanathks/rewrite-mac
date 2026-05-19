@@ -5,3 +5,18 @@ build/
 xcuserdata/
 DerivedData/
 .DS_Store
+
+# llama.cpp source — fetched by Scripts/bootstrap.sh.
+# Required at compile time for LocalLLMClientLlamaC's common/ symlinks, but
+# too large (~150 MB) to track in this repo. The exact tag is pinned in
+# Scripts/bootstrap.sh and must match vendor/LocalLLMClient/Package.swift.
+vendor/LocalLLMClient/Sources/LocalLLMClientLlamaC/exclude/llama.cpp/
+
+# Upstream noise from the LocalLLMClient checkout that the build does not need.
+vendor/LocalLLMClient/Tests/
+vendor/LocalLLMClient/Example/
+vendor/LocalLLMClient/scripts/
+vendor/LocalLLMClient/Package.resolved
+vendor/LocalLLMClient/README.md
+vendor/LocalLLMClient/.gitignore
+vendor/LocalLLMClient/.gitmodules
