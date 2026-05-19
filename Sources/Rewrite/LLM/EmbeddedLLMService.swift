@@ -173,6 +173,10 @@ actor EmbeddedLLMService {
                 // turned the toggle off in the meantime, stop pinging.
                 let keep = await MainActor.run { Settings.shared.keepModelLoaded }
                 if !keep { return }
+                // Skip the ping while Low Power Mode is on. The user has
+                // explicitly asked the system to do less work; keeping a
+                // 5 GB model's pages hot is exactly the wrong thing.
+                if ProcessInfo.processInfo.isLowPowerModeEnabled { continue }
                 try? await self.runDummyDecode()
             }
         }
