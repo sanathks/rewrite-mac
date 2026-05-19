@@ -8,7 +8,7 @@ import Carbon.HIToolbox
 ///
 /// Re-registers all hotkeys whenever the user changes the prefix or
 /// edits a binding via Settings (call `reload()`).
-final class LauncherEngine {
+final class LauncherEngine: ObservableObject {
     static let shared = LauncherEngine()
     private init() {}
 
@@ -22,6 +22,12 @@ final class LauncherEngine {
     private var bindingsByHotKeyID: [UInt32: LauncherBinding] = [:]
     /// EventHotKeyID.id → ref (kept so we can unregister cleanly).
     private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
+
+    /// Binding IDs whose `RegisterEventHotKey` call failed (almost always
+    /// because another process already owns the chord — skhd, Karabiner,
+    /// BetterTouchTool, etc.). Surfaced in Settings so the user can pick
+    /// a different key.
+    @Published private(set) var failedBindings: Set<UUID> = []
 
     // MARK: - Public
 
@@ -42,6 +48,7 @@ final class LauncherEngine {
     /// Idempotent; safe to call from `@Published` observers.
     func reload() {
         unregisterAll()
+        failedBindings = []
         let settings = Settings.shared
         guard settings.launcherEnabled else { return }
         let mods = settings.launcherPrefix.carbonModifiers
@@ -66,9 +73,25 @@ final class LauncherEngine {
             0,
             &ref
         )
-        guard status == noErr, let ref else { return }
+        if status != noErr {
+            // Most common failure is `eventHotKeyExistsErr` (-9878):
+            // another process (skhd, Karabiner, BetterTouchTool, ...) has
+            // already claimed the combo. Surface in the UI.
+            failedBindings.insert(binding.id)
+            return
+        }
+        guard let ref else { return }
         hotKeyRefs[id] = ref
         bindingsByHotKeyID[id] = binding
+    }
+
+    private func modifierDescription(_ mods: UInt32) -> String {
+        var parts: [String] = []
+        if mods & UInt32(controlKey) != 0 { parts.append("\u{2303}") }
+        if mods & UInt32(optionKey) != 0 { parts.append("\u{2325}") }
+        if mods & UInt32(shiftKey) != 0 { parts.append("\u{21E7}") }
+        if mods & UInt32(cmdKey) != 0 { parts.append("\u{2318}") }
+        return parts.joined()
     }
 
     private func unregisterAll() {

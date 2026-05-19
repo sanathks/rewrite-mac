@@ -5,6 +5,7 @@ import SwiftUI
 /// shortcuts handled by `LauncherEngine`.
 struct LauncherSettingsTab: View {
     @ObservedObject private var settings = Settings.shared
+    @ObservedObject private var engine = LauncherEngine.shared
     /// Binding currently in "press a key" capture mode.
     @State private var capturingForBindingID: UUID?
 
@@ -76,6 +77,7 @@ struct LauncherSettingsTab: View {
 
     @ViewBuilder
     private func bindingRow(_ binding: LauncherBinding) -> some View {
+        let failed = engine.failedBindings.contains(binding.id)
         HStack(spacing: 12) {
             Button {
                 capturingForBindingID = binding.id
@@ -101,11 +103,20 @@ struct LauncherSettingsTab: View {
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(binding.displayName)
-                    .font(.body)
-                Text(binding.appURL.path)
+                HStack(spacing: 6) {
+                    Text(binding.displayName)
+                        .font(.body)
+                    if failed {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .help("This shortcut is already in use by another app or hotkey daemon (e.g. skhd, Karabiner, the focused app's own menu). Try a different key or change the prefix.")
+                    }
+                }
+                Text(failed
+                     ? "Conflict — another app already owns \(settings.launcherPrefix.displayName)+\(binding.triggerKey.uppercased())"
+                     : binding.appURL.path)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(failed ? .orange : .secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
