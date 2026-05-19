@@ -89,6 +89,13 @@ final class Settings: ObservableObject {
         didSet { defaults.set(embeddedModel.rawValue, forKey: "embeddedModel") }
     }
 
+    /// When true, the embedded model is loaded into memory at app launch
+    /// (and re-prewarmed after a download or provider switch) so the first
+    /// rewrite doesn't pay the ~10 s cold-start cost. Off keeps ~5 GB free.
+    @Published var keepModelLoaded: Bool {
+        didSet { defaults.set(keepModelLoaded, forKey: "keepModelLoaded") }
+    }
+
     @Published var serverURL: String {
         didSet { defaults.set(serverURL, forKey: "ollamaURL") }
     }
@@ -212,6 +219,13 @@ final class Settings: ObservableObject {
             self.embeddedModel = model
         } else {
             self.embeddedModel = .e4b4bit
+        }
+
+        // Keep model loaded at launch (default true).
+        if defaults.object(forKey: "keepModelLoaded") != nil {
+            self.keepModelLoaded = defaults.bool(forKey: "keepModelLoaded")
+        } else {
+            self.keepModelLoaded = true
         }
 
         self.serverURL = defaults.string(forKey: "ollamaURL") ?? "http://localhost:11434"

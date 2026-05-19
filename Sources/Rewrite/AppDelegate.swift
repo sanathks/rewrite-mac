@@ -41,6 +41,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-build recording indicator panel for instant display
         recordingIndicator.prebuild()
 
+        // Pre-warm the on-device LLM so the first rewrite is instant rather
+        // than paying the ~10 s GGUF mmap + Metal kernel compilation cost.
+        // Periodic keep-alive runs from inside the actor after this.
+        if Settings.shared.llmProvider == .embedded && Settings.shared.keepModelLoaded {
+            Task { await EmbeddedLLMService.shared.prewarm() }
+        }
+
         // Show onboarding wizard on first launch
         if !Settings.shared.hasCompletedOnboarding {
             DispatchQueue.main.async {

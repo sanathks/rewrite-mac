@@ -31,6 +31,13 @@ actor EmbeddedLLMService {
     private var loadedKey: String?
     private(set) var status: EmbeddedModelStatus = .notDownloaded
 
+    /// Long-running task that pings the model every ~2 min while loaded.
+    /// macOS can page mmap'd weight bytes back to disk under memory pressure
+    /// even though our LlamaClient is alive; a tiny dummy decode touches
+    /// the pages and keeps them in the OS page cache.
+    private var keepAliveTask: Task<Void, Never>?
+    private static let keepAliveInterval: UInt64 = 120 * 1_000_000_000  // 120 s
+
     /// Observer callbacks; always invoked on the main actor.
     private var statusObservers: [@MainActor (EmbeddedModelStatus) -> Void] = []
 
@@ -105,9 +112,75 @@ actor EmbeddedLLMService {
                 await self?.setStatus(.downloading(fraction: fraction))
             }
             await refreshStatus()
+            // User just opted into this model — prewarm so the first real
+            // rewrite doesn't pay another ~10 s of cold-start cost.
+            let keepLoaded = await MainActor.run { Settings.shared.keepModelLoaded }
+            if keepLoaded {
+                await prewarm()
+            }
         } catch {
             setStatus(.error(error.localizedDescription))
         }
+    }
+
+    // MARK: - Prewarm / unload
+
+    /// Load the model and run a tiny dummy decode so the first real
+    /// generation doesn't pay the cold-start cost (GGUF mmap, KV cache
+    /// allocation, Metal kernel compilation). Safe to call multiple times —
+    /// no-op once the model is already warm. Errors are swallowed; the user
+    /// will see a real error on the next actual generate if something is off.
+    func prewarm() async {
+        do {
+            try await ensureLoaded()
+            try await runDummyDecode()
+        } catch {
+            // Prewarm failures are non-fatal — leave the model unloaded
+            // and let the next real call surface the error properly.
+        }
+        startKeepAlive()
+    }
+
+    /// One-token decode that warms Metal shaders and KV cache and (when
+    /// re-run periodically) keeps the mmap'd weights resident in the OS
+    /// page cache. Cancels itself after the first chunk so we never emit
+    /// a real response.
+    private func runDummyDecode() async throws {
+        guard let client else { return }
+        let stream = try client.textStream(from: .chat([.user("hi")]))
+        for try await _ in stream {
+            break
+        }
+    }
+
+    /// Drop the cached `LlamaClient` so the OS can reclaim the ~5 GB of
+    /// model weights. Next generation will pay the cold-start cost again.
+    func unload() {
+        stopKeepAlive()
+        client = nil
+        loadedKey = nil
+        Task { await refreshStatus() }
+    }
+
+    private func startKeepAlive() {
+        keepAliveTask?.cancel()
+        keepAliveTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.keepAliveInterval)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                // Honour the user's preference at each tick: if they
+                // turned the toggle off in the meantime, stop pinging.
+                let keep = await MainActor.run { Settings.shared.keepModelLoaded }
+                if !keep { return }
+                try? await self.runDummyDecode()
+            }
+        }
+    }
+
+    private func stopKeepAlive() {
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
     }
 
     // MARK: - Generation

@@ -230,9 +230,15 @@ private struct SettingsContentView: View {
                         .frame(maxWidth: 360)
                         .onChange(of: settings.llmProvider) { provider in
                             if provider == .remote {
+                                Task { await EmbeddedLLMService.shared.unload() }
                                 loadModels()
                             } else {
-                                Task { await EmbeddedLLMService.shared.refreshStatus() }
+                                Task {
+                                    await EmbeddedLLMService.shared.refreshStatus()
+                                    if Settings.shared.keepModelLoaded {
+                                        await EmbeddedLLMService.shared.prewarm()
+                                    }
+                                }
                             }
                         }
 
@@ -313,9 +319,15 @@ private struct SettingsContentView: View {
                 .pickerStyle(.segmented)
                 .onChange(of: settings.llmProvider) { provider in
                     if provider == .remote {
+                        Task { await EmbeddedLLMService.shared.unload() }
                         loadModels()
                     } else {
-                        Task { await EmbeddedLLMService.shared.refreshStatus() }
+                        Task {
+                            await EmbeddedLLMService.shared.refreshStatus()
+                            if Settings.shared.keepModelLoaded {
+                                await EmbeddedLLMService.shared.prewarm()
+                            }
+                        }
                     }
                 }
             }
@@ -564,11 +576,35 @@ private struct SettingsContentView: View {
                 }
                 .labelsHidden()
                 .onChange(of: settings.embeddedModel) { _ in
-                    Task { await EmbeddedLLMService.shared.refreshStatus() }
+                    Task {
+                        await EmbeddedLLMService.shared.unload()
+                        await EmbeddedLLMService.shared.refreshStatus()
+                        if Settings.shared.keepModelLoaded {
+                            await EmbeddedLLMService.shared.prewarm()
+                        }
+                    }
                 }
-                Text("Runs on-device via Apple MLX. Weights download to ~/Library/Caches/models.")
+                Text("Runs on-device via llama.cpp on Metal. Weights download to ~/Library/Caches/models.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Keep model loaded", isOn: $settings.keepModelLoaded)
+                    .toggleStyle(.switch)
+                    .onChange(of: settings.keepModelLoaded) { keep in
+                        Task {
+                            if keep {
+                                await EmbeddedLLMService.shared.prewarm()
+                            } else {
+                                await EmbeddedLLMService.shared.unload()
+                            }
+                        }
+                    }
+                Text("Holds ~3–5 GB in memory and pings the model every two minutes so the first rewrite is instant. Turn off to free memory.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             embeddedStatusView

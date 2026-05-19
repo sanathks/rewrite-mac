@@ -92,10 +92,10 @@ final class RecordingIndicatorPanel {
     }
 
     private static let streamingWidth: CGFloat = 360
-    private static let compactWidth: CGFloat = 116
+    private static let compactWidth: CGFloat = 140
     private static let handsFreeWidth: CGFloat = 168
     private static let handsFreeHeight: CGFloat = 100
-    private static let processingWidth: CGFloat = 180
+    private static let processingWidth: CGFloat = 260
     private static let panelHeight: CGFloat = 68
 
     private func buildPanel() {
@@ -531,11 +531,20 @@ struct RecordingIndicatorView: View {
     }
 
     private var viewWidth: CGFloat {
+        // Hands-free fits a wave + stop button + spacing + padding. With
+        // the bigger 80-px wave the previous 120-wide bubble was clipping
+        // the stop button against its right edge.
         if state.phase == .recording && state.isHandsFree {
-            return 120
+            return 152
         }
         if state.phase == .processing {
-            return 160
+            return 240
+        }
+        // Compact (regular voice shortcut) recording — wave + padding only,
+        // no stop button. The earlier "56" was sized for a 30-px wave and
+        // clipped the new wider wave.
+        if state.phase == .recording {
+            return 120
         }
         return isCompact ? 56 : 340
     }
@@ -573,7 +582,7 @@ struct RecordingIndicatorView: View {
                         }
                         .buttonStyle(.plain)
                     } else if state.streamingEnabled {
-                        WaveformView(audioLevel: state.audioLevel, waveWidth: 30)
+                        WaveformView(audioLevel: state.audioLevel, waveWidth: 110)
 
                         VStack(alignment: .leading, spacing: 2) {
                             if let warning = state.warning {
@@ -598,7 +607,7 @@ struct RecordingIndicatorView: View {
 
                 case .processing:
                     HStack(spacing: 8) {
-                        WaveformView(audioLevel: 0, waveWidth: 30, isIdle: true)
+                        WaveformView(audioLevel: 0, waveWidth: 110, isIdle: true)
                         StageLabel(label: state.stageLabel ?? "Processing…")
                             .animation(.easeInOut(duration: 0.22), value: state.stageLabel)
                     }
