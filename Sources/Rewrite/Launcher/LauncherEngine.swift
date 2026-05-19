@@ -30,6 +30,12 @@ final class LauncherEngine {
     private var prefixKeyCode: UInt16 = LauncherPrefixKey.space.keyCode
     private var bindingsByKey: [String: LauncherBinding] = [:]
 
+    /// Marker written into our synthesised events' userData so the tap
+    /// can recognise them and pass through without re-triggering chord
+    /// logic. Without this, `emitPrefixTap()` would feed events back into
+    /// our own tap and stick the state machine in an infinite loop.
+    private static let syntheticEventMarker: Int64 = 0x52455752_4954_4500  // 'REWRITE\0'
+
     // MARK: - Public API
 
     /// Install the event tap. Safe to call multiple times — uninstalls
@@ -101,10 +107,18 @@ final class LauncherEngine {
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // The kernel can disable the tap if our callback is too slow. Re-
-        // enable and pass the event through unchanged.
+        // The kernel can disable the tap if our callback is too slow.
+        // Reset state so we don't come back with a stale prefixHeld=true.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            prefixHeld = false
+            chordFired = false
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Events we synthesised ourselves (via emitPrefixTap) must not feed
+        // back into chord logic — otherwise we recurse forever.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticEventMarker {
             return Unmanaged.passUnretained(event)
         }
 
@@ -179,12 +193,16 @@ final class LauncherEngine {
 
     /// Synthesise a real press + release of the prefix key so it reaches
     /// the focused app exactly as if the user had typed it normally.
+    /// Both events are stamped with `syntheticEventMarker` so our own tap
+    /// recognises them and skips chord processing.
     private func emitPrefixTap() {
         let src = CGEventSource(stateID: .hidSystemState)
         guard
             let down = CGEvent(keyboardEventSource: src, virtualKey: prefixKeyCode, keyDown: true),
             let up = CGEvent(keyboardEventSource: src, virtualKey: prefixKeyCode, keyDown: false)
         else { return }
+        down.setIntegerValueField(.eventSourceUserData, Self.syntheticEventMarker)
+        up.setIntegerValueField(.eventSourceUserData, Self.syntheticEventMarker)
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
     }
