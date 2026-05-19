@@ -201,8 +201,8 @@ final class LauncherEngine {
             let down = CGEvent(keyboardEventSource: src, virtualKey: prefixKeyCode, keyDown: true),
             let up = CGEvent(keyboardEventSource: src, virtualKey: prefixKeyCode, keyDown: false)
         else { return }
-        down.setIntegerValueField(.eventSourceUserData, Self.syntheticEventMarker)
-        up.setIntegerValueField(.eventSourceUserData, Self.syntheticEventMarker)
+        down.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
+        up.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventMarker)
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
     }
