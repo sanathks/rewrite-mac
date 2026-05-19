@@ -78,6 +78,13 @@ final class AudioCapture {
     private func disposeUnit() {
         cooldownTimer?.invalidate()
         cooldownTimer = nil
+        // Free the sample buffer. By the time the cooldown fires the engine
+        // has already drained what it needed (drainSamples runs right after
+        // stopCapture). Without this, up to 60 s worth of Float samples
+        // (~3.8 MB at 16 kHz mono) hangs around between recordings.
+        lock.lock()
+        _samples.removeAll(keepingCapacity: false)
+        lock.unlock()
         if let unit = audioUnit {
             AudioOutputUnitStop(unit)
             AudioComponentInstanceDispose(unit)
