@@ -402,7 +402,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         silenceTimer = nil
 
         // Show processing immediately on button release
-        recordingIndicator.showStage("Transcribing…")
+        recordingIndicator.showStage("Drafting…")
 
         let speech = SpeechService.shared
 
@@ -484,7 +484,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Re-show panel with processing indicator -- it stays visible
         // until text is fully inserted into the source app.
         recordingIndicator.show()
-        recordingIndicator.showStage("Transcribing…")
+        recordingIndicator.showStage("Drafting…")
         handleSTTStopInternal()
         isFinishingHandsFree = false
     }

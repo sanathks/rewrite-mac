@@ -80,7 +80,7 @@ private struct SettingsContentView: View {
     @State private var embeddedStatus: EmbeddedModelStatus = .notDownloaded
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var audioDevices: [(id: UInt32, uid: String, name: String)] = []
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: SettingsTab = .voice
     private let recommendedModelName = "gemma3:4b"
 
     private let engineDescription =
@@ -100,6 +100,7 @@ private struct SettingsContentView: View {
     private var needsOnboarding: Bool {
         !hasAccessibility || !isLLMReady
     }
+
 
     private func modelLabel(for model: String) -> String {
         model == recommendedModelName ? "\(model) (Recommended)" : model
@@ -148,18 +149,23 @@ private struct SettingsContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 170, max: 200)
         } detail: {
-            if needsOnboarding {
-                onboardingView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(24)
-            } else {
-                detailView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(24)
+            // Wrap in Group + .id() so SwiftUI rebuilds the detail subtree
+            // when needsOnboarding flips. NavigationSplitView otherwise
+            // fails to re-measure the column on detail content swaps and
+            // renders the new content at zero size (blank panel).
+            Group {
+                if needsOnboarding {
+                    onboardingView
+                } else {
+                    detailView
+                }
             }
+            .id(needsOnboarding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(24)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(width: 620, height: 440)
+        .frame(minWidth: 620, minHeight: 440)
         .onAppear {
             loadModels()
             hasAccessibility = AccessibilityService.isTrusted()
@@ -332,11 +338,7 @@ private struct SettingsContentView: View {
                 }
             }
 
-            if settings.llmProvider == .embedded {
-                embeddedProviderSection
-            } else {
-                remoteProviderSection
-            }
+            embeddedProviderSection
 
             Toggle("Launch at Login", isOn: $launchAtLogin)
                 .toggleStyle(.switch)
@@ -604,7 +606,6 @@ private struct SettingsContentView: View {
                 Text("Holds ~3–5 GB in memory and pings the model every two minutes so the first rewrite is instant. Turn off to free memory.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             embeddedStatusView

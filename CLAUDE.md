@@ -24,24 +24,46 @@ llama.framework copy) to actually run.
 
 ## Architecture (high level)
 
-- `AppDelegate.swift` — global shortcut wiring, mode dispatch, glue between
-  STT and LLM. The single point where a shortcut becomes a generation.
-- `LLMService.swift` — provider router. `generate(prompt:)` (one-shot,
-  back-compat) and `generateStream(prompt:onChunk:onComplete:)` (current
-  primary path). Routes to embedded or remote based on `Settings.shared.llmProvider`.
-- `EmbeddedLLMService.swift` — actor wrapping `LocalLLMClient.llama` (Metal
-  via llama.cpp). Owns one `LlamaClient` per loaded model; lazy-loads on
-  first use; cancellation honored via `Task.isCancelled`.
-- `SpeechService.swift` — Parakeet-only STT (sherpa-onnx). WhisperKit was
-  removed; do not reintroduce it (swift-transformers version conflict with
-  LocalLLMClient 0.5.0 + maintenance churn).
-- `ResultPanel.swift` + `PopupView.swift` + `PopupState.swift` — the
-  floating panel UI. Non-activating `NSPanel`. Becomes key when the first
-  result arrives so Return triggers Replace without leaking to the source
-  app. Local `NSEvent` monitor consumes keystrokes; global monitor handles
-  Esc during the streaming phase.
-- `RecordingIndicatorPanel.swift` — voice-input visual (animated waveform).
-- `Settings.swift` + `SettingsWindow.swift` — sidebar settings window.
+Source files live in domain-grouped folders under `Sources/Rewrite/`:
+
+- **`App/`** — entry point + glue
+  - `GrammarFixerApp.swift` — `@main`
+  - `AppDelegate.swift` — global shortcut wiring, mode dispatch, glue between
+    STT and LLM. The single point where a shortcut becomes a generation.
+  - `HotkeyManager.swift` — Carbon-based global hotkey registration.
+  - `AccessibilityService.swift` — reads selected text / writes back via
+    `AXUIElement`. Calls `AXIsProcessTrustedWithOptions` for the prompt.
+- **`LLM/`** — model providers
+  - `LLMService.swift` — provider router. `generate(prompt:)` (one-shot,
+    back-compat) and `generateStream(prompt:onChunk:onComplete:)` (current
+    primary path). Routes to embedded or remote per `Settings.shared.llmProvider`.
+  - `EmbeddedLLMService.swift` — actor wrapping `LocalLLMClient.llama` (Metal
+    via llama.cpp). Owns one `LlamaClient` per loaded model; lazy-load + prewarm
+    + keep-alive ping; cancellation via `Task.isCancelled`.
+  - `Prompts.swift` — rewrite + voice-post-process prompt templates.
+- **`Speech/`** — voice / STT pipeline
+  - `SpeechService.swift` — Parakeet-only STT facade. WhisperKit was removed;
+    do not reintroduce (swift-transformers version conflict with LocalLLMClient).
+  - `ParakeetEngine.swift` — sherpa-onnx Parakeet TDT backend.
+  - `AudioCapture.swift` — CoreAudio HAL Output mic capture.
+  - `AudioLevelMonitor.swift` — RMS level smoothing for the recording UI.
+- **`Settings/`** — settings model + windows
+  - `Settings.swift` — `ObservableObject` shared store; `UserDefaults`-backed.
+  - `SettingsView.swift` — menu-bar popover (mode/model picker).
+  - `SettingsWindow.swift` — full Settings window (sidebar tabs).
+  - `OnboardingWindow.swift`, `RewriteModesWindow.swift`, `ShortcutRecorder.swift`.
+- **`UI/`** — shared chrome / floating panels
+  - `FloatingPanel.swift` — non-activating `NSPanel` subclass used by every
+    floating window (result, recording indicator).
+  - `ResultPanel.swift` + `PopupView.swift` + `PopupState.swift` — the rewrite
+    result panel. Becomes key when the first result arrives so Return triggers
+    Replace without leaking to the source app. Local `NSEvent` monitor consumes
+    keystrokes; global monitor handles Esc during the streaming phase.
+  - `RecordingIndicatorPanel.swift` — animated waveform for voice input;
+    `Drafting…` / `Cleaning…` shimmer label for post-recording stages.
+
+SwiftPM scans the target directory recursively, so adding subfolders works
+without `Package.swift` changes.
 
 ## LLM providers
 

@@ -497,6 +497,8 @@ struct StageLabel: View {
 
             Text(label)
                 .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(
                     LinearGradient(
                         stops: [
