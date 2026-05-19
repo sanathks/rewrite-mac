@@ -48,6 +48,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await EmbeddedLLMService.shared.prewarm() }
         }
 
+        // Launcher (Carbon-hotkey based). install() registers the event
+        // handler + every binding from Settings, no-op if disabled.
+        if Settings.shared.launcherEnabled {
+            LauncherEngine.shared.install()
+        }
+
         // Show onboarding wizard on first launch
         if !Settings.shared.hasCompletedOnboarding {
             DispatchQueue.main.async {
