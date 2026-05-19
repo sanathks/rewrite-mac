@@ -392,7 +392,7 @@ struct WaveformView: View {
     }
 
     private var animatedBody: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 20)) { timeline in
             let timeScale: Double = isIdle ? 0.45 : 1.0
             let time = timeline.date.timeIntervalSinceReferenceDate * timeScale
             // Force a steady "breathing" level during idle so the band visibly
@@ -517,7 +517,7 @@ struct StageLabel: View {
     }
 
     private var animatedShimmer: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 20)) { timeline in
             let cycle: Double = 1.6
             let phase = timeline.date.timeIntervalSinceReferenceDate
                 .truncatingRemainder(dividingBy: cycle) / cycle
