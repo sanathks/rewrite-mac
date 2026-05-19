@@ -46,8 +46,10 @@ actor EmbeddedLLMService {
     private var lastUseTime: Date = .now
     private static let idleUnloadInterval: TimeInterval = 30 * 60  // 30 min
 
-    /// Observer callbacks; always invoked on the main actor.
-    private var statusObservers: [@MainActor (EmbeddedModelStatus) -> Void] = []
+    /// Observer callbacks; always invoked on the main actor. Stored by UUID
+    /// so subscribers can unregister (e.g. on view .onDisappear) without
+    /// accumulating stale closures across Settings window reopens.
+    private var statusObservers: [UUID: @MainActor (EmbeddedModelStatus) -> Void] = [:]
 
     private init() {
         Task { await self.refreshStatus() }
@@ -87,16 +89,26 @@ actor EmbeddedLLMService {
     }
 
     /// Subscribe to status changes. Block is invoked on the main actor.
-    func observe(_ block: @escaping @MainActor (EmbeddedModelStatus) -> Void) {
-        statusObservers.append(block)
+    /// Returns a token that callers should pass to `unobserve(_:)` when they
+    /// want to stop receiving updates — otherwise stale observers (e.g.
+    /// from previously-closed Settings windows) accumulate indefinitely.
+    @discardableResult
+    func observe(_ block: @escaping @MainActor (EmbeddedModelStatus) -> Void) -> UUID {
+        let id = UUID()
+        statusObservers[id] = block
         let snapshot = status
         Task { @MainActor in block(snapshot) }
+        return id
+    }
+
+    func unobserve(_ id: UUID) {
+        statusObservers[id] = nil
     }
 
     private func setStatus(_ newStatus: EmbeddedModelStatus) {
         status = newStatus
         let snapshot = newStatus
-        let observers = statusObservers
+        let observers = Array(statusObservers.values)
         Task { @MainActor in
             for observer in observers { observer(snapshot) }
         }

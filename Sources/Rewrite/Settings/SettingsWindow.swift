@@ -81,6 +81,10 @@ private struct SettingsContentView: View {
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var audioDevices: [(id: UInt32, uid: String, name: String)] = []
     @State private var selectedTab: SettingsTab = .voice
+    /// Token for our EmbeddedLLMService status subscription so we can
+    /// unsubscribe on .onDisappear; otherwise a stale observer is left on
+    /// the singleton each time the Settings window closes.
+    @State private var embeddedStatusObserverID: UUID?
     private let recommendedModelName = "gemma3:4b"
 
     private let engineDescription =
@@ -173,9 +177,16 @@ private struct SettingsContentView: View {
             checkModelStatus()
             audioDevices = SpeechService.availableInputDevices()
             Task {
-                await EmbeddedLLMService.shared.observe { status in
+                let id = await EmbeddedLLMService.shared.observe { status in
                     embeddedStatus = status
                 }
+                embeddedStatusObserverID = id
+            }
+        }
+        .onDisappear {
+            if let id = embeddedStatusObserverID {
+                Task { await EmbeddedLLMService.shared.unobserve(id) }
+                embeddedStatusObserverID = nil
             }
         }
     }
