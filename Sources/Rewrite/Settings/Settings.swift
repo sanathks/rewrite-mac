@@ -136,6 +136,24 @@ final class Settings: ObservableObject {
         didSet { defaults.set(voicePostProcessEnabled, forKey: "autoGrammarOnSTT") }
     }
 
+    // MARK: - Quick launcher (Carbon hotkey based)
+
+    @Published var launcherEnabled: Bool {
+        didSet { defaults.set(launcherEnabled, forKey: "launcherEnabled") }
+    }
+
+    @Published var launcherPrefix: LauncherPrefix {
+        didSet { defaults.set(launcherPrefix.rawValue, forKey: "launcherPrefix") }
+    }
+
+    @Published var launcherBindings: [LauncherBinding] {
+        didSet {
+            if let data = try? JSONEncoder().encode(launcherBindings) {
+                defaults.set(data, forKey: "launcherBindings")
+            }
+        }
+    }
+
     @Published var voicePostProcessPrompt: String {
         didSet { defaults.set(voicePostProcessPrompt, forKey: "voicePostProcessPrompt") }
     }
@@ -271,6 +289,23 @@ final class Settings: ObservableObject {
 
         self.voicePostProcessPrompt = defaults.string(forKey: "voicePostProcessPrompt")
             ?? Settings.defaultVoicePostProcessPrompt
+
+        // Launcher (Carbon hotkey based — opt-in).
+        self.launcherEnabled = defaults.bool(forKey: "launcherEnabled")
+
+        if let raw = defaults.string(forKey: "launcherPrefix"),
+           let prefix = LauncherPrefix(rawValue: raw) {
+            self.launcherPrefix = prefix
+        } else {
+            self.launcherPrefix = .ctrlOption
+        }
+
+        if let data = defaults.data(forKey: "launcherBindings"),
+           let bindings = try? JSONDecoder().decode([LauncherBinding].self, from: data) {
+            self.launcherBindings = bindings
+        } else {
+            self.launcherBindings = []
+        }
 
         // Selected mic UID (default: "" = system default).
         // Migrate from legacy "selectedMicDeviceID": discard the old numeric ID
