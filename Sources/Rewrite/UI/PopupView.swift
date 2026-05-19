@@ -2,6 +2,9 @@ import SwiftUI
 
 private let popupWidth: CGFloat = 340
 private let maxContentHeight: CGFloat = 300
+/// Stable anchor inside the result ScrollView so we can ask the
+/// ScrollViewReader to pin scroll to the bottom on each new chunk.
+private let resultScrollAnchorID = "result-bottom"
 
 struct PopupView: View {
     @ObservedObject var state: PopupState
@@ -87,13 +90,31 @@ struct PopupView: View {
 
     @ViewBuilder
     private func resultBody(text: String, metadata: ResultMetadata?, streaming: Bool) -> some View {
-        Text(text)
-            .font(.system(size: 13))
-            .foregroundColor(.white.opacity(0.9))
-            .textSelection(.enabled)
-            .lineSpacing(2)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, maxHeight: maxContentHeight, alignment: .leading)
+        // Scrollable content area. Without the ScrollView the Text uses
+        // its intrinsic height and the panel grows unbounded for long
+        // outputs, overlapping the mode chips and action row.
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                Text(text)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.9))
+                    .textSelection(.enabled)
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(resultScrollAnchorID)
+            }
+            .frame(maxHeight: maxContentHeight)
+            .onChange(of: text) { _ in
+                // Pin scroll to the bottom while tokens are streaming so
+                // the user always sees the freshest text. After streaming
+                // ends the user is free to scroll up to read.
+                if streaming {
+                    withAnimation(.linear(duration: 0.1)) {
+                        proxy.scrollTo(resultScrollAnchorID, anchor: .bottom)
+                    }
+                }
+            }
+        }
 
         Rectangle()
             .fill(Color.white.opacity(0.1))
