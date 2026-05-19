@@ -51,6 +51,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case modes
     case shortcuts
     case voice
+    case launcher
 
     var id: String { rawValue }
 
@@ -60,6 +61,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .modes: return "Modes"
         case .shortcuts: return "Shortcuts"
         case .voice: return "Voice"
+        case .launcher: return "Launcher"
         }
     }
 
@@ -69,6 +71,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .modes: return "text.badge.star"
         case .shortcuts: return "keyboard"
         case .voice: return "mic"
+        case .launcher: return "bolt.fill"
         }
     }
 }
@@ -325,6 +328,8 @@ private struct SettingsContentView: View {
             shortcutsTab
         case .voice:
             voiceTab
+        case .launcher:
+            LauncherSettingsTab()
         }
     }
 
