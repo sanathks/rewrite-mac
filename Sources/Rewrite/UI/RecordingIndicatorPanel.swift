@@ -44,6 +44,7 @@ final class RecordingIndicatorPanel {
         }
 
         panel?.orderFront(nil)
+        state.isVisible = true
     }
 
     func showHandsFree(onFinish: @escaping () -> Void) {
@@ -224,6 +225,7 @@ final class RecordingIndicatorPanel {
     func close() {
         removeEscapeMonitor()
         panel?.orderOut(nil)
+        state.isVisible = false
     }
 
     private func resizePanelToCompact() {
@@ -279,6 +281,10 @@ final class RecordingIndicatorState: ObservableObject {
     @Published var streamingEnabled: Bool = true
     @Published var isHandsFree: Bool = false
     @Published var toastMessage: String?
+    /// Whether the floating panel is currently shown. The Canvas-driven
+    /// waveform and shimmer label gate their TimelineView on this so we
+    /// don't burn CPU drawing into an off-screen window.
+    @Published var isVisible: Bool = false
     /// Label shown in the .processing phase (e.g. "Transcribing…", "Cleaning…").
     @Published var stageLabel: String?
     var onFinish: (() -> Void)?
@@ -365,6 +371,9 @@ struct WaveformView: View {
     /// amplitude — used for the .processing phase so it visibly idles rather
     /// than reacting to a (silent) mic.
     var isIdle: Bool = false
+    /// When false, the TimelineView is skipped entirely so we don't burn
+    /// CPU drawing into a hidden panel.
+    var isAnimating: Bool = true
     private let waveHeight: CGFloat = 32
 
     /// Number of parallel "fibers" per band. More fibers → denser ribbon →
@@ -375,6 +384,14 @@ struct WaveformView: View {
     }
 
     var body: some View {
+        if !isAnimating {
+            Color.clear.frame(width: waveWidth, height: waveHeight)
+        } else {
+            animatedBody
+        }
+    }
+
+    private var animatedBody: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
             let timeScale: Double = isIdle ? 0.45 : 1.0
             let time = timeline.date.timeIntervalSinceReferenceDate * timeScale
@@ -438,6 +455,8 @@ struct WaveformView: View {
 /// sweeping left → right. The whole view cross-fades when the label changes.
 struct StageLabel: View {
     let label: String
+    /// When false the shimmer's TimelineView is skipped entirely.
+    var isAnimating: Bool = true
 
     /// Pick an SF Symbol that matches the stage. Falls back to a neutral
     /// "thinking" indicator for unknown labels.
@@ -484,7 +503,20 @@ struct StageLabel: View {
     /// Text foreground style is an animated gradient that "sweeps" a brighter
     /// stop across the text every ~1.6 s. Renders the shimmer-loading look
     /// you see in Copilot / Linear / Notion AI.
+    @ViewBuilder
     private var shimmerText: some View {
+        if !isAnimating {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .foregroundStyle(Color.white.opacity(0.8))
+        } else {
+            animatedShimmer
+        }
+    }
+
+    private var animatedShimmer: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
             let cycle: Double = 1.6
             let phase = timeline.date.timeIntervalSinceReferenceDate
@@ -570,7 +602,7 @@ struct RecordingIndicatorView: View {
                 switch state.phase {
                 case .recording:
                     if state.isHandsFree {
-                        WaveformView(audioLevel: state.audioLevel, waveWidth: 80)
+                        WaveformView(audioLevel: state.audioLevel, waveWidth: 80, isAnimating: state.isVisible)
 
                         Button {
                             state.onFinish?()
@@ -584,7 +616,7 @@ struct RecordingIndicatorView: View {
                         }
                         .buttonStyle(.plain)
                     } else if state.streamingEnabled {
-                        WaveformView(audioLevel: state.audioLevel, waveWidth: 110)
+                        WaveformView(audioLevel: state.audioLevel, waveWidth: 110, isAnimating: state.isVisible)
 
                         VStack(alignment: .leading, spacing: 2) {
                             if let warning = state.warning {
@@ -604,13 +636,13 @@ struct RecordingIndicatorView: View {
                             }
                         }
                     } else {
-                        WaveformView(audioLevel: state.audioLevel, waveWidth: 80)
+                        WaveformView(audioLevel: state.audioLevel, waveWidth: 80, isAnimating: state.isVisible)
                     }
 
                 case .processing:
                     HStack(spacing: 8) {
-                        WaveformView(audioLevel: 0, waveWidth: 110, isIdle: true)
-                        StageLabel(label: state.stageLabel ?? "Processing…")
+                        WaveformView(audioLevel: 0, waveWidth: 110, isIdle: true, isAnimating: state.isVisible)
+                        StageLabel(label: state.stageLabel ?? "Processing…", isAnimating: state.isVisible)
                             .animation(.easeInOut(duration: 0.22), value: state.stageLabel)
                     }
 
