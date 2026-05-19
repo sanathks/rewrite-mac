@@ -14,8 +14,8 @@ Standard rebuild-and-test loop while iterating:
 
 ```bash
 pkill -x Rewrite; bash Scripts/build.sh \
-  && cp -R build/Rewrite.app ~/Applications/ \
-  && open ~/Applications/Rewrite.app
+  && cp -R build/Rewrite.app /Applications/ \
+  && open /Applications/Rewrite.app
 ```
 
 Debug builds run via `swift build` and are useful only for catching compile
