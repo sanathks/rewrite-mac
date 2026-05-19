@@ -85,6 +85,7 @@ final class ResultPanel {
             self.state.modePhases[modeId] = .result(text, metadata)
             self.state.loadingStartTimes[modeId] = nil
             self.state.streamingTokenCounts[modeId] = nil
+            self.state.firstTokenTimes[modeId] = nil
             self.pendingModeId = nil
             self.resizePanel()
             self.acquireKeyFocus()
@@ -110,6 +111,12 @@ final class ResultPanel {
             // one token per chunk.
             let count = (self.state.streamingTokenCounts[modeId] ?? 0) + 1
             self.state.streamingTokenCounts[modeId] = count
+
+            // Stamp the first-token time so tok/s reflects generation
+            // throughput, not generation + prompt-eval.
+            if self.state.firstTokenTimes[modeId] == nil {
+                self.state.firstTokenTimes[modeId] = Date()
+            }
 
             let metadata = self.buildMetadata(
                 for: modeId,
@@ -144,6 +151,7 @@ final class ResultPanel {
             self.state.modePhases[modeId] = .result(finalText, metadata)
             self.state.loadingStartTimes[modeId] = nil
             self.state.streamingTokenCounts[modeId] = nil
+            self.state.firstTokenTimes[modeId] = nil
             self.pendingModeId = nil
             self.resizePanel()
             self.acquireKeyFocus()
@@ -164,6 +172,8 @@ final class ResultPanel {
             guard let modeId = self.pendingModeId else { return }
             self.state.modePhases[modeId] = .error(message)
             self.state.loadingStartTimes[modeId] = nil
+            self.state.streamingTokenCounts[modeId] = nil
+            self.state.firstTokenTimes[modeId] = nil
             self.pendingModeId = nil
             self.resizePanel()
         }
@@ -175,22 +185,34 @@ final class ResultPanel {
         tokenCount: Int?
     ) -> ResultMetadata? {
         guard let modelName, !modelName.isEmpty else { return nil }
+
+        // Total duration (used for the human-readable elapsed time only).
         let elapsedMs: Int
-        let elapsedSec: Double
         if let start = state.loadingStartTimes[modeId] {
-            let interval = Date().timeIntervalSince(start)
-            elapsedMs = Int(interval * 1000)
-            elapsedSec = interval
+            elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
         } else {
             elapsedMs = 0
-            elapsedSec = 0
         }
+
+        // tok/s is throughput AFTER the first token landed. Including the
+        // prompt-eval phase makes the early rate look slow and then climb
+        // artificially as cold-start cost is amortised. (n - 1) tokens are
+        // generated in the window between first-token and now; the first
+        // token itself is the marker, not a generated unit measured here.
         let tps: Double
-        if let tokenCount, elapsedSec > 0 {
-            tps = Double(tokenCount) / elapsedSec
+        if let tokenCount,
+           tokenCount > 1,
+           let firstToken = state.firstTokenTimes[modeId] {
+            let interval = Date().timeIntervalSince(firstToken)
+            if interval > 0 {
+                tps = Double(tokenCount - 1) / interval
+            } else {
+                tps = 0
+            }
         } else {
             tps = 0
         }
+
         return ResultMetadata(modelName: modelName, durationMs: elapsedMs, tokensPerSecond: tps)
     }
 

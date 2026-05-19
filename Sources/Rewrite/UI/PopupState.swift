@@ -27,6 +27,14 @@ final class PopupState: ObservableObject {
     /// Cleared once the stream completes.
     var streamingTokenCounts: [UUID: Int] = [:]
 
+    /// Wall-clock time the first chunk arrived for this mode. tok/s is
+    /// measured from here, NOT from `loadingStartTimes`, because the
+    /// prompt-evaluation phase (cold start + prompt tokenisation) sits
+    /// between the two and would otherwise drag the rate down for the
+    /// first few chunks and then artificially climb as the cold-start
+    /// cost is amortised.
+    var firstTokenTimes: [UUID: Date] = [:]
+
     var modes: [RewriteMode]
     var onModeSelected: ((RewriteMode) -> Void)?
     /// Re-run generation for the currently-selected mode. Bypasses the result
