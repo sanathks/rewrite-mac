@@ -38,6 +38,14 @@ actor EmbeddedLLMService {
     private var keepAliveTask: Task<Void, Never>?
     private static let keepAliveInterval: UInt64 = 120 * 1_000_000_000  // 120 s
 
+    /// Wall-clock time of the most recent real `generate(...)` call. The
+    /// keep-alive task auto-unloads the model when this gets too old, so a
+    /// laptop left idle for hours doesn't permanently hold 5 GB of weights.
+    /// Keep-alive pings deliberately don't count as "use" — only real
+    /// rewrites bump this.
+    private var lastUseTime: Date = .now
+    private static let idleUnloadInterval: TimeInterval = 30 * 60  // 30 min
+
     /// Observer callbacks; always invoked on the main actor.
     private var statusObservers: [@MainActor (EmbeddedModelStatus) -> Void] = []
 
@@ -164,6 +172,7 @@ actor EmbeddedLLMService {
 
     private func startKeepAlive() {
         keepAliveTask?.cancel()
+        lastUseTime = .now
         keepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.keepAliveInterval)
@@ -173,6 +182,13 @@ actor EmbeddedLLMService {
                 // turned the toggle off in the meantime, stop pinging.
                 let keep = await MainActor.run { Settings.shared.keepModelLoaded }
                 if !keep { return }
+                // Idle auto-unload. If no real rewrite has happened in a
+                // long time, drop the model so the OS can reclaim the
+                // ~5 GB. Next rewrite pays the cold-start cost again.
+                if await self.idleTooLong() {
+                    await self.unload()
+                    return
+                }
                 // Skip the ping while Low Power Mode is on. The user has
                 // explicitly asked the system to do less work; keeping a
                 // 5 GB model's pages hot is exactly the wrong thing.
@@ -180,6 +196,10 @@ actor EmbeddedLLMService {
                 try? await self.runDummyDecode()
             }
         }
+    }
+
+    private func idleTooLong() -> Bool {
+        Date.now.timeIntervalSince(lastUseTime) > Self.idleUnloadInterval
     }
 
     private func stopKeepAlive() {
@@ -212,6 +232,8 @@ actor EmbeddedLLMService {
         guard let client else {
             throw LLMError.connectionFailed("Embedded model not loaded.")
         }
+        // Mark real use so the idle-unload timer is held off.
+        lastUseTime = .now
 
         var messages: [LLMInput.Message] = []
         if let systemPrompt {
