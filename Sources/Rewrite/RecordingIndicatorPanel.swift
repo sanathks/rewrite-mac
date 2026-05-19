@@ -93,9 +93,10 @@ final class RecordingIndicatorPanel {
 
     private static let streamingWidth: CGFloat = 360
     private static let compactWidth: CGFloat = 116
-    private static let handsFreeWidth: CGFloat = 140
-    private static let handsFreeHeight: CGFloat = 82
-    private static let panelHeight: CGFloat = 56
+    private static let handsFreeWidth: CGFloat = 168
+    private static let handsFreeHeight: CGFloat = 100
+    private static let processingWidth: CGFloat = 180
+    private static let panelHeight: CGFloat = 68
 
     private func buildPanel() {
         let view = RecordingIndicatorView(state: state)
@@ -148,12 +149,33 @@ final class RecordingIndicatorPanel {
         }
     }
 
-    func showProcessing() {
+    /// Show the processing phase with a custom label (e.g. "Transcribing…",
+    /// "Cleaning…"). The waveform keeps drawing but in idle mode — slower
+    /// and lower amplitude — alongside an animated icon + shimmering text.
+    func showStage(_ label: String) {
         DispatchQueue.main.async {
             self.state.phase = .processing
+            self.state.stageLabel = label
             self.state.audioLevel = 0
             self.state.warning = nil
+            self.resizePanelToProcessing()
         }
+    }
+
+    private func resizePanelToProcessing() {
+        guard let panel else { return }
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        guard let screen else { return }
+        let visibleFrame = screen.visibleFrame
+        let origin = NSPoint(
+            x: visibleFrame.midX - Self.processingWidth / 2,
+            y: visibleFrame.minY + 20
+        )
+        panel.setFrame(
+            NSRect(origin: origin, size: NSSize(width: Self.processingWidth, height: Self.panelHeight)),
+            display: true,
+            animate: false
+        )
     }
 
     /// Show the transcribed text for preview before inserting.
@@ -257,6 +279,8 @@ final class RecordingIndicatorState: ObservableObject {
     @Published var streamingEnabled: Bool = true
     @Published var isHandsFree: Bool = false
     @Published var toastMessage: String?
+    /// Label shown in the .processing phase (e.g. "Transcribing…", "Cleaning…").
+    @Published var stageLabel: String?
     var onFinish: (() -> Void)?
 }
 
@@ -267,25 +291,50 @@ private struct WaveLayer {
     let freq: Double
     let phase: Double
     let amp: CGFloat
-    let opacity: Double
+    /// Base color of this band. Stroked twice: a wide low-alpha pass for the
+    /// "glow" halo, then a thin core line at full alpha.
+    let color: Color
 }
 
+/// Three colored bands interleaving — cyan / magenta / amber. Each band is a
+/// sin curve at a different speed/phase; the offsets keep them weaving rather
+/// than overlapping flatly.
 private let waveLayers: [WaveLayer] = [
-    WaveLayer(speed: 2.8, freq: 2.5, phase: 0.0, amp: 0.9, opacity: 0.15),
-    WaveLayer(speed: 3.5, freq: 3.0, phase: 1.2, amp: 0.7, opacity: 0.25),
-    WaveLayer(speed: 4.5, freq: 3.8, phase: 2.5, amp: 1.0, opacity: 0.6),
+    WaveLayer(speed: 2.8, freq: 2.5, phase: 0.0, amp: 0.9,
+              color: Color(red: 0.30, green: 0.75, blue: 1.00)),   // electric cyan
+    WaveLayer(speed: 3.5, freq: 3.0, phase: 1.2, amp: 0.7,
+              color: Color(red: 1.00, green: 0.35, blue: 0.80)),   // magenta/pink
+    WaveLayer(speed: 4.5, freq: 3.8, phase: 2.5, amp: 1.0,
+              color: Color(red: 1.00, green: 0.65, blue: 0.20)),   // warm amber
 ]
 
-private func buildWavePath(
-    wave: WaveLayer, time: Double, level: CGFloat,
-    maxAmp: CGFloat, midY: CGFloat, steps: Int
+/// Build one "fiber" of a band: a single sinusoidal curve at the given time,
+/// offset by `fiber` ∈ [-1, 1] so that stacking many fibers produces the
+/// wireframe-ribbon look from the reference image. Fibers near the centre
+/// trace the main wave; fibers at the edges sit slightly above/below and
+/// fan out at the high-amplitude regions to give the band visible thickness.
+private func buildWaveFiberPath(
+    wave: WaveLayer,
+    fiber: Double,
+    time: Double,
+    level: CGFloat,
+    maxAmp: CGFloat,
+    midY: CGFloat,
+    steps: Int
 ) -> Path {
     var path = Path()
+    // Per-fiber phase nudge so adjacent fibers shimmer past each other.
+    let fiberPhase = fiber * 0.55
+    // Band thickness — how far above/below midline the outer fibers sit.
+    let bandThickness: CGFloat = maxAmp * 0.22
+
     for x in 0...steps {
         let t: Double = Double(x) / Double(steps)
+        // Bell-curve envelope so the band fans out in the middle of the
+        // panel and tapers to nothing at the edges.
         let envelope: Double = sin(t * .pi)
 
-        let y1: Double = sin(time * wave.speed + t * wave.freq * .pi * 2 + wave.phase)
+        let y1: Double = sin(time * wave.speed + t * wave.freq * .pi * 2 + wave.phase + fiberPhase)
         let speedA: Double = wave.speed * 1.6
         let freqA: Double = wave.freq * 1.4
         let y2: Double = sin(time * speedA + t * freqA * .pi * 2 + wave.phase + 0.8) * 0.4
@@ -295,7 +344,10 @@ private func buildWavePath(
 
         let combined: Double = (y1 + y2 + y3) / 1.7
         let amplitude: CGFloat = maxAmp / 2 * level * wave.amp * CGFloat(envelope)
-        let py: CGFloat = midY + CGFloat(combined) * amplitude
+        // Fiber's own vertical offset, scaled by envelope so the ribbon is
+        // thick in the middle and thin at the edges (3D-ish).
+        let fiberOffset: CGFloat = CGFloat(fiber) * bandThickness * CGFloat(envelope)
+        let py: CGFloat = midY + CGFloat(combined) * amplitude + fiberOffset
 
         if x == 0 {
             path.move(to: CGPoint(x: CGFloat(x), y: py))
@@ -309,43 +361,155 @@ private func buildWavePath(
 struct WaveformView: View {
     let audioLevel: CGFloat
     var waveWidth: CGFloat = 40
-    private let waveHeight: CGFloat = 18
-    private let lineWidth: CGFloat = 2.5
+    /// When true, the waveform animates at half speed with a constant low
+    /// amplitude — used for the .processing phase so it visibly idles rather
+    /// than reacting to a (silent) mic.
+    var isIdle: Bool = false
+    private let waveHeight: CGFloat = 32
+
+    /// Number of parallel "fibers" per band. More fibers → denser ribbon →
+    /// the wireframe look in the reference image. Scaled down at small
+    /// panel widths to keep things visually balanced.
+    private var fibersPerBand: Int {
+        waveWidth >= 60 ? 18 : 10
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
-            let time = timeline.date.timeIntervalSinceReferenceDate
-            let level = min(1.0, audioLevel * 1.3)
+            let timeScale: Double = isIdle ? 0.45 : 1.0
+            let time = timeline.date.timeIntervalSinceReferenceDate * timeScale
+            // Force a steady "breathing" level during idle so the band visibly
+            // pulses without ever going flat.
+            let level: CGFloat = isIdle
+                ? 0.32 + 0.10 * CGFloat(sin(time * 1.6))
+                : min(1.0, audioLevel * 1.3)
 
             Canvas { context, size in
                 let midY = size.height / 2
                 let steps = Int(size.width)
+                let fiberCount = fibersPerBand
 
-                let waveColor = Color(
-                    hue: 0.56,
-                    saturation: 0.6 + 0.3 * Double(level),
-                    brightness: 0.8 + 0.2 * Double(level)
-                )
+                // Fiber alpha — many overlapping thin lines sum visually, so
+                // each line is faint individually. Boost slightly with audio
+                // level so the bands "light up" when you speak.
+                let alpha: Double = 0.32 + 0.25 * Double(level)
+                let lineWidth: CGFloat = waveWidth >= 60 ? 0.6 : 0.8
 
                 for wave in waveLayers {
-                    let path = buildWavePath(
-                        wave: wave, time: time, level: level,
-                        maxAmp: waveHeight, midY: midY, steps: steps
-                    )
+                    for i in 0..<fiberCount {
+                        // Map fiber index to [-1, 1] so the band stacks above
+                        // and below the centerline symmetrically.
+                        let fiber: Double = (Double(i) / Double(fiberCount - 1) - 0.5) * 2
 
-                    context.stroke(
-                        path,
-                        with: .color(waveColor.opacity(wave.opacity * 0.5)),
-                        lineWidth: lineWidth + 3
-                    )
-                    context.stroke(
-                        path,
-                        with: .color(waveColor.opacity(wave.opacity + 0.2)),
-                        lineWidth: lineWidth
-                    )
+                        // Scale maxAmp below frame height so the peak fiber
+                        // excursion (wave amplitude + outer fiber offset)
+                        // always fits inside the canvas without clipping.
+                        let path = buildWaveFiberPath(
+                            wave: wave,
+                            fiber: fiber,
+                            time: time,
+                            level: level,
+                            maxAmp: waveHeight * 0.60,
+                            midY: midY,
+                            steps: steps
+                        )
+
+                        // Fade fibers slightly at the edges of the band so
+                        // the ribbon has a soft border rather than a sharp
+                        // cut-off.
+                        let edgeFade: Double = 1.0 - 0.35 * Swift.abs(fiber)
+                        context.stroke(
+                            path,
+                            with: .color(wave.color.opacity(alpha * edgeFade)),
+                            lineWidth: lineWidth
+                        )
+                    }
                 }
             }
             .frame(width: waveWidth, height: waveHeight)
+        }
+    }
+}
+
+// MARK: - Stage label
+
+/// Animated label shown during the .processing phase: an SF Symbol with a
+/// native symbolEffect + the label text with a moving "shimmer" highlight
+/// sweeping left → right. The whole view cross-fades when the label changes.
+struct StageLabel: View {
+    let label: String
+
+    /// Pick an SF Symbol that matches the stage. Falls back to a neutral
+    /// "thinking" indicator for unknown labels.
+    private var iconName: String {
+        let lower = label.lowercased()
+        if lower.contains("transcrib") { return "waveform" }
+        if lower.contains("clean") || lower.contains("polish") || lower.contains("refin") {
+            return "sparkles"
+        }
+        return "ellipsis"
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            stageIcon
+            shimmerText
+        }
+        .id(label) // forces cross-fade when label string changes
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    @ViewBuilder
+    private var stageIcon: some View {
+        let icon = Image(systemName: iconName)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.30, green: 0.75, blue: 1.00),
+                        Color(red: 1.00, green: 0.35, blue: 0.80)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+
+        if iconName == "sparkles" {
+            icon.symbolEffect(.variableColor.iterative.reversing, options: .repeating)
+        } else {
+            icon.symbolEffect(.pulse, options: .repeating)
+        }
+    }
+
+    /// Text foreground style is an animated gradient that "sweeps" a brighter
+    /// stop across the text every ~1.6 s. Renders the shimmer-loading look
+    /// you see in Copilot / Linear / Notion AI.
+    private var shimmerText: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+            let cycle: Double = 1.6
+            let phase = timeline.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: cycle) / cycle
+            // Centre of the bright stop, swept slightly past both edges so
+            // the highlight enters from one side and leaves on the other.
+            let center = phase * 1.4 - 0.2
+            let lo = max(0, center - 0.18)
+            let hi = min(1, center + 0.18)
+
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.55), location: 0),
+                            .init(color: .white.opacity(0.55), location: lo),
+                            .init(color: .white, location: center),
+                            .init(color: .white.opacity(0.55), location: hi),
+                            .init(color: .white.opacity(0.55), location: 1)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
         }
     }
 }
@@ -360,7 +524,7 @@ struct RecordingIndicatorView: View {
         case .recording:
             return !state.streamingEnabled
         case .processing:
-            return true
+            return false
         case .preview:
             return false
         }
@@ -369,6 +533,9 @@ struct RecordingIndicatorView: View {
     private var viewWidth: CGFloat {
         if state.phase == .recording && state.isHandsFree {
             return 120
+        }
+        if state.phase == .processing {
+            return 160
         }
         return isCompact ? 56 : 340
     }
@@ -430,9 +597,11 @@ struct RecordingIndicatorView: View {
                     }
 
                 case .processing:
-                    ProgressView()
-                        .controlSize(.small)
-                        .colorScheme(.dark)
+                    HStack(spacing: 8) {
+                        WaveformView(audioLevel: 0, waveWidth: 30, isIdle: true)
+                        StageLabel(label: state.stageLabel ?? "Processing…")
+                            .animation(.easeInOut(duration: 0.22), value: state.stageLabel)
+                    }
 
                 case .preview:
                     VStack(alignment: .leading, spacing: 4) {

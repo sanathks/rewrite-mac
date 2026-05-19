@@ -395,7 +395,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         silenceTimer = nil
 
         // Show processing immediately on button release
-        recordingIndicator.showProcessing()
+        recordingIndicator.showStage("Transcribing…")
 
         let speech = SpeechService.shared
 
@@ -408,7 +408,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             if settings.voicePostProcessEnabled && !userPrompt.isEmpty {
-                self.recordingIndicator.showProcessing()
+                self.recordingIndicator.showStage("Cleaning…")
 
                 let prompt = Prompts.voicePostProcess(
                     prompt: userPrompt,
@@ -477,7 +477,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Re-show panel with processing indicator -- it stays visible
         // until text is fully inserted into the source app.
         recordingIndicator.show()
-        recordingIndicator.showProcessing()
+        recordingIndicator.showStage("Transcribing…")
         handleSTTStopInternal()
         isFinishingHandsFree = false
     }
