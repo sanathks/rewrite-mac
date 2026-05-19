@@ -414,7 +414,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let userPrompt = settings.voicePostProcessPrompt
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if settings.voicePostProcessEnabled && !userPrompt.isEmpty {
+            // Skip the LLM entirely for short, filler-free utterances —
+            // the STT engine already produced them cleanly, and the
+            // ~300–800 ms round-trip would be wasted latency.
+            let needsCleanup = VoiceHeuristics.needsCleanup(transcribedText)
+
+            if settings.voicePostProcessEnabled && !userPrompt.isEmpty && needsCleanup {
                 self.recordingIndicator.showStage("Cleaning…")
 
                 let prompt = Prompts.voicePostProcess(
