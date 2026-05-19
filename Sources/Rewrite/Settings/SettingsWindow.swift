@@ -80,7 +80,7 @@ private struct SettingsContentView: View {
     @State private var embeddedStatus: EmbeddedModelStatus = .notDownloaded
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var audioDevices: [(id: UInt32, uid: String, name: String)] = []
-    @State private var selectedTab: SettingsTab = .voice
+    @State private var selectedTab: SettingsTab = .general
     /// Token for our EmbeddedLLMService status subscription so we can
     /// unsubscribe on .onDisappear; otherwise a stale observer is left on
     /// the singleton each time the Settings window closes.
