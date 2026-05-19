@@ -28,9 +28,17 @@ final class SettingsWindow {
         win.setContentSize(NSSize(width: 620, height: 440))
         win.center()
         win.appearance = NSAppearance(named: .darkAqua)
+        // Give the window an empty toolbar so NavigationSplitView can anchor
+        // its sidebar-toggle button and properly reserve the title-bar safe
+        // area on first render. Without this, the sidebar starts flush to
+        // the top of the window and overlaps the traffic-light buttons
+        // until a tab switch forces a relayout.
+        let toolbar = NSToolbar(identifier: "RewriteSettingsToolbar")
+        toolbar.displayMode = .iconOnly
+        win.toolbar = toolbar
+        win.toolbarStyle = .unified
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        win.toolbar?.isVisible = false
 
         window = win
     }
@@ -85,6 +93,11 @@ private struct SettingsContentView: View {
     /// unsubscribe on .onDisappear; otherwise a stale observer is left on
     /// the singleton each time the Settings window closes.
     @State private var embeddedStatusObserverID: UUID?
+    /// Binding NavigationSplitView's column visibility to SwiftUI state is
+    /// what makes SwiftUI register the sidebar-toggle toolbar item on
+    /// initial render. Without an explicit binding the toggle only
+    /// appears after the first tab switch triggers a layout pass.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     private let recommendedModelName = "gemma3:4b"
 
     private let engineDescription =
@@ -118,7 +131,7 @@ private struct SettingsContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             VStack(spacing: 0) {
                 List(SettingsTab.allCases, selection: $selectedTab) { tab in
                     Label(tab.label, systemImage: tab.icon)
