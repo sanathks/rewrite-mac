@@ -518,6 +518,29 @@ private struct SettingsContentView: View {
                     }
                 }
 
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Custom Vocabulary")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    Text("One word or phrase per line. Biases transcription toward names, acronyms, and product terms the recogniser doesn't get right on its own. Leave empty to disable.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    TextEditor(text: $settings.voiceHotwords)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 80, maxHeight: 160)
+                        .padding(4)
+                        .background(Color(NSColor.textBackgroundColor))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        )
+                }
+
                 HStack {
                     Circle()
                         .fill(hasMicrophone ? Color.green : Color.red)

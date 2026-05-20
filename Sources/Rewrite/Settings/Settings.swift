@@ -158,6 +158,13 @@ final class Settings: ObservableObject {
         didSet { defaults.set(voicePostProcessPrompt, forKey: "voicePostProcessPrompt") }
     }
 
+    /// Newline-separated custom vocabulary. Passed to sherpa-onnx's
+    /// hotwords mechanism to bias recognition toward names / acronyms /
+    /// product terms the user cares about. Empty by default.
+    @Published var voiceHotwords: String {
+        didSet { defaults.set(voiceHotwords, forKey: "voiceHotwords") }
+    }
+
     static let defaultVoicePostProcessPrompt =
         "Clean up the following voice transcription. Fix grammar, punctuation, and capitalization. Remove filler words (um, uh, like, you know, sort of). Preserve the speaker's meaning and intent — do not paraphrase, summarize, or add information. Return only the cleaned text with no preamble or commentary."
 
@@ -289,6 +296,8 @@ final class Settings: ObservableObject {
 
         self.voicePostProcessPrompt = defaults.string(forKey: "voicePostProcessPrompt")
             ?? Settings.defaultVoicePostProcessPrompt
+
+        self.voiceHotwords = defaults.string(forKey: "voiceHotwords") ?? ""
 
         // Launcher (Carbon hotkey based — opt-in).
         self.launcherEnabled = defaults.bool(forKey: "launcherEnabled")

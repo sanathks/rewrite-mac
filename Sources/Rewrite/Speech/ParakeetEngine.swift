@@ -1,9 +1,16 @@
+import Combine
 import CoreAudio
 import Foundation
 import SherpaOnnxSwift
 
 final class ParakeetEngine {
     private var recognizer: SherpaOnnxOfflineRecognizer?
+    /// Hotwords list the cached recognizer was built with. If it diverges
+    /// from `Settings.shared.voiceHotwords` we discard the cached recognizer
+    /// and build a new one — the hotwords file path is baked into the
+    /// recognizer at creation time.
+    private var recognizerHotwordsKey: String = ""
+    private var hotwordsObserver: AnyCancellable?
     private var isRecording = false
     private let audioCapture = AudioCapture()
 
@@ -40,18 +47,37 @@ final class ParakeetEngine {
 
     func preload() {
         guard ParakeetEngine.isModelReady() else { return }
-        guard recognizer == nil else { return }
+        observeHotwordsIfNeeded()
+
+        let currentKey = Settings.shared.voiceHotwords
+        if recognizer != nil && recognizerHotwordsKey == currentKey { return }
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let rec = ParakeetEngine.createRecognizer()
+            let rec = ParakeetEngine.createRecognizer(hotwords: currentKey)
             DispatchQueue.main.async {
                 self?.recognizer = rec
+                self?.recognizerHotwordsKey = currentKey
             }
         }
     }
 
+    /// Wire up a one-shot observer that drops the cached recognizer when
+    /// the user edits the hotwords list. The next `preload()` /
+    /// `startRecording()` rebuilds it. Cheap — recognizer creation is a
+    /// few hundred ms and only pays the cost when the list actually changes.
+    private func observeHotwordsIfNeeded() {
+        guard hotwordsObserver == nil else { return }
+        hotwordsObserver = Settings.shared.$voiceHotwords
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.recognizer = nil
+                self?.recognizerHotwordsKey = ""
+            }
+    }
+
     func startRecording() {
         isRecording = true
+        observeHotwordsIfNeeded()
 
         let settings = Settings.shared
         let resolved = SpeechService.deviceID(forUID: settings.selectedMicUID)
@@ -61,13 +87,16 @@ final class ParakeetEngine {
         }
         audioCapture.startCapture(deviceID: deviceID)
 
-        // Pre-load recognizer if needed
-        if recognizer == nil && ParakeetEngine.isModelReady() {
+        let currentKey = settings.voiceHotwords
+        let needsBuild = (recognizer == nil || recognizerHotwordsKey != currentKey)
+            && ParakeetEngine.isModelReady()
+        if needsBuild {
             Task.detached { [weak self] in
                 let capturedSelf = self
-                let rec = ParakeetEngine.createRecognizer()
+                let rec = ParakeetEngine.createRecognizer(hotwords: currentKey)
                 await MainActor.run {
                     capturedSelf?.recognizer = rec
+                    capturedSelf?.recognizerHotwordsKey = currentKey
                 }
             }
         }
@@ -109,7 +138,7 @@ final class ParakeetEngine {
 
     // MARK: - Model Creation
 
-    private static func createRecognizer() -> SherpaOnnxOfflineRecognizer? {
+    private static func createRecognizer(hotwords: String) -> SherpaOnnxOfflineRecognizer? {
         let dir = modelDirectory.path
 
         let transducerConfig = sherpaOnnxOfflineTransducerModelConfig(
@@ -127,12 +156,50 @@ final class ParakeetEngine {
 
         let featConfig = sherpaOnnxFeatureConfig(sampleRate: 16000, featureDim: 80)
 
+        // Hotwords require modified_beam_search; greedy_search ignores them.
+        // The existing >1-second audio guard in `stopRecording` keeps the
+        // hallucinate-on-silence risk in check.
+        let hotwordsPath = writeHotwordsFile(hotwords) ?? ""
+        let useHotwords = !hotwordsPath.isEmpty
+        let decodingMethod = useHotwords ? "modified_beam_search" : "greedy_search"
+
         var config = sherpaOnnxOfflineRecognizerConfig(
             featConfig: featConfig,
-            modelConfig: modelConfig
+            modelConfig: modelConfig,
+            decodingMethod: decodingMethod,
+            hotwordsFile: hotwordsPath,
+            hotwordsScore: 2.0
         )
 
         return SherpaOnnxOfflineRecognizer(config: &config)
+    }
+
+    /// Serialise the user's hotwords list to a file sherpa-onnx can read.
+    /// Returns the file path, or `nil` when there's nothing to write —
+    /// caller falls back to greedy_search without hotwords.
+    private static func writeHotwordsFile(_ hotwords: String) -> String? {
+        let words = hotwords
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !words.isEmpty else { return nil }
+
+        let caches = FileManager.default.urls(
+            for: .cachesDirectory, in: .userDomainMask
+        ).first!
+        let dir = caches.appendingPathComponent("Rewrite", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true
+        )
+        let url = dir.appendingPathComponent("parakeet-hotwords.txt")
+        do {
+            try words.joined(separator: "\n").write(
+                to: url, atomically: true, encoding: .utf8
+            )
+            return url.path
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Model Download
