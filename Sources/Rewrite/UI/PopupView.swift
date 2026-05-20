@@ -116,6 +116,18 @@ struct PopupView: View {
             }
         }
 
+        // Refine field — only visible once streaming has completed.
+        // Lets the user issue follow-up instructions like "shorter" or
+        // "more formal" that re-stream against the current output.
+        if !streaming {
+            Rectangle()
+                .fill(Color.white.opacity(0.1))
+                .frame(height: 1)
+                .padding(.vertical, 8)
+
+            RefineField(state: state)
+        }
+
         Rectangle()
             .fill(Color.white.opacity(0.1))
             .frame(height: 1)
@@ -322,3 +334,64 @@ struct IconActionButton: View {
     }
 }
 
+/// Single-line refine input that re-streams the LLM against the current
+/// result. Auto-focuses each time a fresh `.result` lands (tracked via
+/// `PopupState.resultArrivalToken`) so the user can chain refinements
+/// without reaching for the mouse.
+struct RefineField: View {
+    @ObservedObject var state: PopupState
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.55))
+
+            TextField("Refine: shorter, more formal\u{2026}", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.95))
+                .focused($focused)
+                .onSubmit(submit)
+
+            if !text.isEmpty {
+                Button(action: submit) {
+                    Image(systemName: "return")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.65))
+                        .frame(width: 18, height: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Refine (Return)")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.white.opacity(focused ? 0.3 : 0.15), lineWidth: 1)
+        )
+        .animation(.easeInOut(duration: 0.12), value: focused)
+        .onAppear { focused = true }
+        .onChange(of: state.resultArrivalToken) { _ in
+            text = ""
+            focused = true
+        }
+    }
+
+    private func submit() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        state.onRefine?(trimmed)
+    }
+}

@@ -376,8 +376,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = ResultPanel(modes: modes)
         currentPanel = panel
 
-        func runMode(_ mode: RewriteMode) {
-            let prompt = Prompts.rewrite(mode: mode, text: text)
+        // Shared helper — same stream/append/complete plumbing for both
+        // the initial mode run and the follow-up refinement runs.
+        func streamPrompt(_ prompt: String) {
             let modelName = LLMService.activeModelLabel
             let handle = LLMService.shared.generateStream(
                 prompt: prompt,
@@ -396,6 +397,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.setActiveStream(handle)
         }
 
+        func runMode(_ mode: RewriteMode) {
+            streamPrompt(Prompts.rewrite(mode: mode, text: text))
+        }
+
+        func runRefine(previousText: String, instruction: String) {
+            streamPrompt(Prompts.refine(
+                previousOutput: previousText,
+                instruction: instruction
+            ))
+        }
+
         panel.show(
             near: selectionRect,
             initialMode: initialMode,
@@ -410,6 +422,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.currentPanel = nil
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result, forType: .string)
+            },
+            onRefine: { previous, instruction in
+                runRefine(previousText: previous, instruction: instruction)
             }
         )
 

@@ -31,12 +31,17 @@ final class ResultPanel {
         self.state = PopupState(modes: modes)
     }
 
+    /// `onRefine` receives `(previousText, instruction)` — the current
+    /// result for the active mode and the user-typed refinement. The
+    /// callback is expected to kick off a new LLM stream against the
+    /// existing panel (`appendChunk` / `completeStream`).
     func show(
         near selectionRect: NSRect,
         initialMode: RewriteMode,
         onModeSelected: @escaping (RewriteMode) -> Void,
         onReplace: @escaping (String) -> Void,
-        onCopy: @escaping (String) -> Void
+        onCopy: @escaping (String) -> Void,
+        onRefine: ((String, String) -> Void)? = nil
     ) {
         state.selectedModeId = initialMode.id
         state.modePhases[initialMode.id] = .loading
@@ -73,6 +78,22 @@ final class ResultPanel {
         state.onCancel = { [weak self] in
             self?.close()
         }
+        state.onRefine = { [weak self] instruction in
+            guard let self,
+                  let modeId = self.state.selectedModeId,
+                  case .result(let previousText, _) = self.state.modePhases[modeId]
+            else { return }
+
+            // Same phase-reset dance as onRegenerate: drop back to
+            // loading + arm pendingModeId so the upcoming stream's
+            // chunks land on this mode.
+            self.state.modePhases[modeId] = .loading
+            self.state.loadingStartTimes[modeId] = Date()
+            self.pendingModeId = modeId
+            self.resizePanel()
+
+            onRefine?(previousText, instruction)
+        }
 
         cachedSelectionRect = selectionRect
         showPanel(at: selectionRect)
@@ -86,6 +107,7 @@ final class ResultPanel {
             self.state.loadingStartTimes[modeId] = nil
             self.state.streamingTokenCounts[modeId] = nil
             self.state.firstTokenTimes[modeId] = nil
+            self.state.resultArrivalToken &+= 1
             self.pendingModeId = nil
             self.resizePanel()
             self.acquireKeyFocus()
@@ -152,6 +174,7 @@ final class ResultPanel {
             self.state.loadingStartTimes[modeId] = nil
             self.state.streamingTokenCounts[modeId] = nil
             self.state.firstTokenTimes[modeId] = nil
+            self.state.resultArrivalToken &+= 1
             self.pendingModeId = nil
             self.resizePanel()
             self.acquireKeyFocus()
@@ -344,11 +367,21 @@ final class ResultPanel {
     private func handleKey(_ event: NSEvent) -> Bool {
         let isCmd = event.modifierFlags.contains(.command)
 
-        // Esc — dismiss
+        // Esc — dismiss. Consumed even when the refine field has focus
+        // so the user can always bail with one keystroke.
         if event.keyCode == 53 {
             DispatchQueue.main.async { self.close() }
             return true
         }
+
+        // When the refine TextField (an NSTextView under SwiftUI) is
+        // first responder, let Return / ⌘R / ⌘C through to the field so
+        // the user can type, submit, paste, etc. without our shortcut
+        // monitor stealing the keystrokes.
+        if isRefineFieldFocused() {
+            return false
+        }
+
         // Return (36) or numpad Enter (76) — replace, only when result is ready
         if event.keyCode == 36 || event.keyCode == 76 {
             if case .result(let text, _) = self.state.currentPhase {
@@ -374,6 +407,15 @@ final class ResultPanel {
             return false
         }
         return false
+    }
+
+    /// True when keyboard focus is inside the refine TextField. SwiftUI's
+    /// TextField uses an `NSTextView` as its first responder backing —
+    /// checking for that class is the lightest reliable signal we have
+    /// from the AppKit side.
+    private func isRefineFieldFocused() -> Bool {
+        guard let panel else { return false }
+        return panel.firstResponder is NSTextView
     }
 
     /// Replace the stream handle for the in-flight generation. The previous

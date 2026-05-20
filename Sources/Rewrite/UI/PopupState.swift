@@ -43,6 +43,16 @@ final class PopupState: ObservableObject {
     var onReplace: ((String) -> Void)?
     var onCopy: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    /// Refine the current result with a user-typed instruction. The
+    /// callback runs a follow-up LLM stream using the previous output as
+    /// input and replaces the result for the current mode in place.
+    var onRefine: ((String) -> Void)?
+
+    /// Bumped each time a fresh `.result` lands for the active mode.
+    /// Watched by the refine TextField in the popup so it can re-focus
+    /// itself after each refinement completes — without re-firing on
+    /// unrelated state changes like mode switches.
+    @Published var resultArrivalToken: Int = 0
 
     init(modes: [RewriteMode]) {
         self.modes = modes

@@ -36,6 +36,41 @@ enum Prompts {
         """
     }
 
+    /// Build a refinement prompt — used when the user types an
+    /// instruction in the result panel's Refine field after the initial
+    /// rewrite has landed. Small models (Gemma 4 2B/4B) get confused if
+    /// the original text and the user's instruction aren't visually
+    /// distinct, so we use clear labelled sections + a one-shot example
+    /// to anchor the structure.
+    static func refine(previousOutput: String, instruction: String) -> String {
+        return """
+        You are a text refinement engine.
+        You will be given an ORIGINAL TEXT and a USER INSTRUCTION.
+        Your job: modify the ORIGINAL TEXT according to the USER INSTRUCTION.
+
+        CRITICAL RULES:
+        - The USER INSTRUCTION is NEVER text to rewrite. It tells you what to do to the ORIGINAL TEXT.
+        - Always operate on the ORIGINAL TEXT, never on the instruction.
+        - Preserve meaning except where the instruction asks for changes.
+        - Never use em dashes. Use commas or periods instead.
+        - Return ONLY the refined text — no preamble, no labels, no quotes, no markdown, no commentary.
+
+        Example:
+        ORIGINAL TEXT: The quick brown fox jumps over the lazy dog in the warm sunshine of a summer afternoon.
+        USER INSTRUCTION: shorter
+        REFINED TEXT: The quick brown fox jumps over the lazy dog.
+
+        Now refine this:
+        ORIGINAL TEXT:
+        \(previousOutput)
+
+        USER INSTRUCTION:
+        \(instruction)
+
+        REFINED TEXT:
+        """
+    }
+
     static func rewrite(mode: RewriteMode, text: String) -> String {
         if mode.id == Settings.fixGrammarModeId {
             return String(format: fixGrammarPrompt, text)
