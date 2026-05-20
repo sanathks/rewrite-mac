@@ -317,7 +317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // the user sees the hotkey was received. This is the only rewrite
         // path that writes back without any other UI; everything else
         // (Rewrite hotkey, voice) already shows a panel of its own.
-        inlineProgress.show(at: selectionRect, label: "Fixing grammar\u{2026}")
+        inlineProgress.show(at: selectionRect, label: "Polishing\u{2026}")
 
         LLMService.shared.generate(prompt: prompt) { [weak self] result in
             DispatchQueue.main.async {
