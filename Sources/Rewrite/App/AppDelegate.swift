@@ -130,37 +130,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let settings = Settings.shared
 
-        // Model submenu
-        let modelMenu = NSMenu()
-        let modelItem = NSMenuItem(title: "Model", action: nil, keyEquivalent: "")
-        LLMService.shared.fetchModels { models in
-            DispatchQueue.main.async {
-                modelMenu.removeAllItems()
-                if models.isEmpty {
-                    let item = NSMenuItem(title: "Not connected", action: nil, keyEquivalent: "")
-                    item.isEnabled = false
-                    modelMenu.addItem(item)
-                } else {
-                    for model in models {
-                        let item = NSMenuItem(title: model, action: #selector(self.selectModel(_:)), keyEquivalent: "")
-                        item.target = self
-                        item.representedObject = model
-                        if model == settings.modelName {
-                            item.state = .on
-                        }
+        // Rewrite Selection — top section, one item per configured mode.
+        // Clicking grabs the current AX selection from the foreground app
+        // and opens the same result panel as the global hotkey. Status
+        // menus on LSUIElement apps don't change the systemwide
+        // foreground, so the source app's selection stays readable while
+        // our menu is open.
+        let modes = settings.rewriteModes
+        if !modes.isEmpty {
+            let rewriteSubmenu = NSMenu()
+            let rewriteItem = NSMenuItem(title: "Rewrite Selection", action: nil, keyEquivalent: "")
+            rewriteItem.image = NSImage(
+                systemSymbolName: "text.badge.checkmark",
+                accessibilityDescription: "Rewrite"
+            )
+            for mode in modes {
+                let item = NSMenuItem(
+                    title: mode.name,
+                    action: #selector(runRewriteMode(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = mode.id
+                rewriteSubmenu.addItem(item)
+            }
+            rewriteItem.submenu = rewriteSubmenu
+            menu.addItem(rewriteItem)
+            menu.addItem(.separator())
+        }
+
+        // Model submenu — only meaningful for the remote provider. For
+        // the embedded provider the model is picked in Settings (a fixed
+        // short list of GGUFs), so we hide the submenu entirely to keep
+        // the menu uncluttered.
+        if settings.llmProvider == .remote {
+            let modelMenu = NSMenu()
+            let modelItem = NSMenuItem(title: "Model", action: nil, keyEquivalent: "")
+            LLMService.shared.fetchModels { models in
+                DispatchQueue.main.async {
+                    modelMenu.removeAllItems()
+                    if models.isEmpty {
+                        let item = NSMenuItem(title: "Not connected", action: nil, keyEquivalent: "")
+                        item.isEnabled = false
                         modelMenu.addItem(item)
+                    } else {
+                        for model in models {
+                            let item = NSMenuItem(title: model, action: #selector(self.selectModel(_:)), keyEquivalent: "")
+                            item.target = self
+                            item.representedObject = model
+                            if model == settings.modelName {
+                                item.state = .on
+                            }
+                            modelMenu.addItem(item)
+                        }
                     }
                 }
             }
+            // Add current model as placeholder while loading
+            if !settings.modelName.isEmpty {
+                let placeholder = NSMenuItem(title: settings.modelName, action: nil, keyEquivalent: "")
+                placeholder.state = .on
+                modelMenu.addItem(placeholder)
+            }
+            modelItem.submenu = modelMenu
+            menu.addItem(modelItem)
         }
-        // Add current model as placeholder while loading
-        if !settings.modelName.isEmpty {
-            let placeholder = NSMenuItem(title: settings.modelName, action: nil, keyEquivalent: "")
-            placeholder.state = .on
-            modelMenu.addItem(placeholder)
-        }
-        modelItem.submenu = modelMenu
-        menu.addItem(modelItem)
 
         // Microphone submenu
         let micMenu = NSMenu()
@@ -189,16 +223,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        // Status
-        let connectedText = "LLM: Connected"
-        let disconnectedText = "LLM: Disconnected"
-        let statusItem = NSMenuItem(title: disconnectedText, action: nil, keyEquivalent: "")
+        // LLM status row — text + meaning depends on the active provider.
+        // Embedded: query the actor for the current load state. Remote:
+        // probe the server's model list.
+        let statusItem = NSMenuItem(title: "LLM: \u{2026}", action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         menu.addItem(statusItem)
-        // Update async
-        LLMService.shared.fetchModels { models in
-            DispatchQueue.main.async {
-                statusItem.title = models.isEmpty ? disconnectedText : connectedText
+        switch settings.llmProvider {
+        case .embedded:
+            statusItem.title = "Gemma 4: \u{2026}"
+            Task {
+                let status = await EmbeddedLLMService.shared.status
+                await MainActor.run {
+                    statusItem.title = "Gemma 4: \(Self.embeddedStatusText(status))"
+                }
+            }
+        case .remote:
+            statusItem.title = "LLM: Disconnected"
+            LLMService.shared.fetchModels { models in
+                DispatchQueue.main.async {
+                    statusItem.title = models.isEmpty ? "LLM: Disconnected" : "LLM: Connected"
+                }
             }
         }
 
@@ -225,6 +270,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func selectModel(_ sender: NSMenuItem) {
         if let model = sender.representedObject as? String {
             Settings.shared.modelName = model
+        }
+    }
+
+    /// Short, human-friendly label for the embedded model's runtime state,
+    /// used by the menu-bar status row.
+    private static func embeddedStatusText(_ status: EmbeddedModelStatus) -> String {
+        switch status {
+        case .notDownloaded: return "Not downloaded"
+        case .downloading(let f): return "Downloading \(Int(f * 100))%"
+        case .downloaded: return "Downloaded"
+        case .loading: return "Loading\u{2026}"
+        case .ready: return "Ready"
+        case .error: return "Error"
         }
     }
 
@@ -276,19 +334,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let selectionRect = AccessibilityService.shared.getSelectionRect()
+        guard let initialMode = defaultRewriteMode() else { return }
+
+        runRewrite(text: text, initialMode: initialMode, near: selectionRect)
+    }
+
+    /// Resolve the mode to start with: the user's chosen default if set,
+    /// otherwise the first mode in the list. Returns nil only when the
+    /// mode list is unexpectedly empty.
+    private func defaultRewriteMode() -> RewriteMode? {
         let settings = Settings.shared
         let modes = settings.rewriteModes
-
-        guard !modes.isEmpty else { return }
-
-        // Pick default mode: use defaultModeId if it exists in modes, otherwise first mode
-        let initialMode: RewriteMode
+        guard !modes.isEmpty else { return nil }
         if let modeId = settings.defaultModeId,
            let mode = modes.first(where: { $0.id == modeId }) {
-            initialMode = mode
-        } else {
-            initialMode = modes[0]
+            return mode
         }
+        return modes[0]
+    }
+
+    /// Shared rewrite pipeline used by both the global hotkey and the
+    /// menu-bar "Rewrite Selection" entries. `selectionRect` is the
+    /// on-screen anchor used for panel placement — pass `.zero` if you
+    /// don't have one and the panel falls back to the mouse-cursor
+    /// position.
+    private func runRewrite(text: String, initialMode: RewriteMode, near selectionRect: NSRect) {
+        let modes = Settings.shared.rewriteModes
+        guard !modes.isEmpty else { return }
 
         currentPanel?.close()
 
@@ -332,8 +404,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
-        // Immediately run the initial mode
         runMode(initialMode)
+    }
+
+    /// Menu-bar action: user picked a Rewrite mode from the status-item
+    /// dropdown. Mirrors the global rewrite hotkey path but uses the
+    /// clicked mode as the initial selection. Falls back to a beep if no
+    /// text is currently selected in the source app.
+    @objc private func runRewriteMode(_ sender: NSMenuItem) {
+        guard let modeID = sender.representedObject as? UUID,
+              let mode = Settings.shared.rewriteModes.first(where: { $0.id == modeID })
+        else { return }
+
+        guard AccessibilityService.isTrusted() else {
+            AccessibilityService.requestPermission()
+            return
+        }
+
+        guard let text = AccessibilityService.shared.getSelectedText(), !text.isEmpty else {
+            NSSound.beep()
+            return
+        }
+
+        let rect = AccessibilityService.shared.getSelectionRect()
+        runRewrite(text: text, initialMode: mode, near: rect)
     }
 
     // MARK: - Speech-to-Text
