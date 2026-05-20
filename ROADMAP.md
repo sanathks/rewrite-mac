@@ -120,7 +120,7 @@ in the History tab description.
 
 ## 5. Follow-up edits in the result panel — `~2 h` · medium risk
 
-`[ ]`
+`[x]` shipped 2026-05-20 · commit `5e419e2`
 
 After a rewrite lands, a `Refine…` text field appears in the result
 panel. Type *"shorter"* or *"more formal"*, Return, the model
