@@ -10,7 +10,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ## 1. Custom vocabulary for voice — `~30 min` · low risk
 
-`[ ]`
+`[x]` shipped 2026-05-20 · commit `29fbd02`
 
 Bias Parakeet's recogniser toward user-supplied terms so names and
 acronyms transcribe correctly the first time.
