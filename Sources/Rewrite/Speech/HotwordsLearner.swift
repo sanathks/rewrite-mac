@@ -7,25 +7,29 @@ import ApplicationServices
 /// suggested to the user via `HotwordSuggestionPanel`, and on accept
 /// land in `Settings.voiceHotwords`.
 ///
-/// Pure poll-based — no AXObserver C-callback ceremony. Polls the focused
-/// element's value every `pollInterval` for `pollWindow`; the candidate
-/// must show up in two consecutive polls before we propose it so we don't
-/// fire while the user is mid-typing the word.
+/// Pure poll-based — no AXObserver C-callback ceremony. Polls at 500 ms
+/// so we catch corrections even when the user immediately submits (Enter
+/// clears the field). The candidateFor word-boundary check stops us
+/// firing mid-typing without needing multi-poll stability.
 /// Always called on the main thread (timers fire on main, callers dispatch
 /// onto main). No internal synchronisation.
 final class HotwordsLearner {
     static let shared = HotwordsLearner()
     private init() {}
 
-    private let pollInterval: TimeInterval = 2.0
+    private let pollInterval: TimeInterval = 0.5
     private let pollWindow: TimeInterval = 60.0
 
     private var watchedElement: AXUIElement?
     private var baselineValue: String = ""
+    /// Most recent non-empty current-value observation. Lets us run a
+    /// final diff when the field suddenly clears (Enter / submit) so the
+    /// user's last keystroke before sending still counts.
+    private var lastSeenValue: String = ""
     private var insertedText: String = ""
     private var startTime: Date = .distantPast
     private var pollTimer: Timer?
-    private var lastCandidate: String?
+    private var fired = false
 
     /// Call right after `AccessibilityService.shared.insertTextInSourceApp`.
     /// Records a baseline value for the focused element and begins
@@ -35,6 +39,12 @@ final class HotwordsLearner {
         guard Settings.shared.voiceHotwordsAutoLearn else { return }
         let trimmed = insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { return }
+
+        // Ask Electron / Chrome / etc. to expose their full a11y tree so
+        // kAXValueAttribute returns the field text. No-op for native apps.
+        if let pid = Self.focusedElementPid() {
+            Self.enableEnhancedUI(for: pid)
+        }
 
         guard let element = Self.systemFocusedElement(),
               let baseline = Self.readValue(of: element),
@@ -47,9 +57,10 @@ final class HotwordsLearner {
         stop()
         watchedElement = element
         baselineValue = baseline
+        lastSeenValue = baseline
         self.insertedText = trimmed
         startTime = Date()
-        lastCandidate = nil
+        fired = false
 
         pollTimer = Timer.scheduledTimer(
             withTimeInterval: pollInterval, repeats: true
@@ -63,38 +74,61 @@ final class HotwordsLearner {
         pollTimer = nil
         watchedElement = nil
         baselineValue = ""
+        lastSeenValue = ""
         insertedText = ""
-        lastCandidate = nil
+        fired = false
     }
 
     private func poll() {
+        if fired { stop(); return }
         if Date().timeIntervalSince(startTime) > pollWindow { stop(); return }
         guard let element = watchedElement else { stop(); return }
-        guard let current = Self.readValue(of: element) else { return }
-        if current == baselineValue { lastCandidate = nil; return }
 
+        let current = Self.readValue(of: element)
+
+        // Field-clear detection: AX read failed or value shrank a lot
+        // since the last poll (user pressed Enter / Send). Run a final
+        // diff using the last seen value so a fast Enter still counts.
+        let cleared: Bool
+        if let current {
+            cleared = current.count + 5 < lastSeenValue.count
+                && lastSeenValue != baselineValue
+        } else {
+            cleared = true
+        }
+
+        if cleared {
+            _ = tryPropose(against: lastSeenValue)
+            stop()
+            return
+        }
+
+        guard let current else { return }
+        if current != baselineValue {
+            _ = tryPropose(against: current)
+        }
+        lastSeenValue = current
+    }
+
+    @discardableResult
+    private func tryPropose(against text: String) -> Bool {
         guard let candidate = Self.findHotwordCandidate(
             baseline: baselineValue,
-            current: current,
+            current: text,
             insertedText: insertedText
-        ) else {
-            lastCandidate = nil
-            return
-        }
+        ) else { return false }
 
-        if Self.isAlreadyHotword(candidate) {
-            lastCandidate = nil
-            return
-        }
+        if Self.isAlreadyHotword(candidate) { return false }
 
-        // Wait until the candidate is stable for two consecutive polls so
-        // we don't fire mid-typing ("Ca" → "Cand" → "Candis").
-        if lastCandidate?.lowercased() == candidate.lowercased() {
-            propose(candidate)
-            stop()
-        } else {
-            lastCandidate = candidate
-        }
+        // Require the candidate to be followed by a word boundary in the
+        // text — keeps us from firing while the user is still typing the
+        // letters ("Ca" → "Cand" → "Candis"). The completed word will be
+        // followed by space/punct or sit at end-of-string.
+        guard Self.hasWordBoundaryAfter(candidate, in: text) else { return false }
+
+        fired = true
+        propose(candidate)
+        return true
     }
 
     private func propose(_ word: String) {
@@ -141,6 +175,34 @@ final class HotwordsLearner {
             element, kAXValueAttribute as CFString, &raw
         ) == .success else { return nil }
         return raw as? String
+    }
+
+    private static func focusedElementPid() -> pid_t? {
+        guard let element = systemFocusedElement() else { return nil }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        return pid
+    }
+
+    /// Mirror of `AccessibilityService.enableEnhancedUI`. Tells Electron /
+    /// Chrome apps to expose their full a11y tree so we can read text
+    /// values from web-based input fields. Cheap, idempotent at the OS
+    /// level — Apple's API tolerates repeated sets.
+    private static func enableEnhancedUI(for pid: pid_t) {
+        let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(
+            axApp, "AXEnhancedUserInterface" as CFString, true as CFTypeRef
+        )
+        AXUIElementSetAttributeValue(
+            axApp, "AXManualAccessibility" as CFString, true as CFTypeRef
+        )
+    }
+
+    private static func hasWordBoundaryAfter(_ word: String, in text: String) -> Bool {
+        guard let range = text.range(of: word) else { return false }
+        if range.upperBound == text.endIndex { return true }
+        let next = text[range.upperBound]
+        return !next.isLetter
     }
 
     // MARK: - Diff
