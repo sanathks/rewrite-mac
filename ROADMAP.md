@@ -27,7 +27,7 @@ Validation: bad/empty lines silently ignored; sherpa-onnx tolerates them.
 
 ## 2. Services menu integration — `~1.5 h` · low risk
 
-`[ ]`
+`[x]` shipped 2026-05-20
 
 Right-click selected text in any app → Services → Rewrite → mode.
 Native macOS extension point; no extra runtime cost.

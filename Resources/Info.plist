@@ -20,5 +20,98 @@
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Rewrite uses the microphone for speech-to-text dictation.</string>
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMessage</key>
+            <string>rewriteService</string>
+            <key>NSPortName</key>
+            <string>Rewrite</string>
+            <key>NSUserData</key>
+            <string></string>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Rewrite Selection</string>
+            </dict>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>NSStringPboardType</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSMessage</key>
+            <string>rewriteService</string>
+            <key>NSPortName</key>
+            <string>Rewrite</string>
+            <key>NSUserData</key>
+            <string>Fix Grammar</string>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Rewrite/Fix Grammar</string>
+            </dict>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>NSStringPboardType</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSMessage</key>
+            <string>rewriteService</string>
+            <key>NSPortName</key>
+            <string>Rewrite</string>
+            <key>NSUserData</key>
+            <string>Clarity</string>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Rewrite/Clarity</string>
+            </dict>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>NSStringPboardType</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSMessage</key>
+            <string>rewriteService</string>
+            <key>NSPortName</key>
+            <string>Rewrite</string>
+            <key>NSUserData</key>
+            <string>My Tone</string>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Rewrite/My Tone</string>
+            </dict>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>NSStringPboardType</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSMessage</key>
+            <string>rewriteService</string>
+            <key>NSPortName</key>
+            <string>Rewrite</string>
+            <key>NSUserData</key>
+            <string>Humanize</string>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Rewrite/Humanize</string>
+            </dict>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>NSStringPboardType</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

@@ -54,6 +54,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             LauncherEngine.shared.install()
         }
 
+        // Wire the system Services menu to our @objc rewriteService handler.
+        // NSUpdateDynamicServices nudges `pbs` to re-scan our Info.plist so
+        // the entries show up without waiting for the next system rescan.
+        NSApp.servicesProvider = self
+        NSUpdateDynamicServices()
+
         // Show onboarding wizard on first launch
         if !Settings.shared.hasCompletedOnboarding {
             DispatchQueue.main.async {
@@ -276,19 +282,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let selectionRect = AccessibilityService.shared.getSelectionRect()
+        guard let initialMode = defaultRewriteMode() else { return }
+
+        runRewrite(text: text, initialMode: initialMode, near: selectionRect)
+    }
+
+    /// Resolve the mode to start with: the user's chosen default if set,
+    /// otherwise the first mode in the list. Returns nil only when the
+    /// mode list is unexpectedly empty.
+    private func defaultRewriteMode() -> RewriteMode? {
         let settings = Settings.shared
         let modes = settings.rewriteModes
-
-        guard !modes.isEmpty else { return }
-
-        // Pick default mode: use defaultModeId if it exists in modes, otherwise first mode
-        let initialMode: RewriteMode
+        guard !modes.isEmpty else { return nil }
         if let modeId = settings.defaultModeId,
            let mode = modes.first(where: { $0.id == modeId }) {
-            initialMode = mode
-        } else {
-            initialMode = modes[0]
+            return mode
         }
+        return modes[0]
+    }
+
+    /// Shared rewrite pipeline used by both the global hotkey and the
+    /// Services menu entry. `selectionRect` is the on-screen anchor used
+    /// for panel placement — pass `.zero` if you don't have one and the
+    /// panel will fall back to the mouse-cursor position.
+    private func runRewrite(text: String, initialMode: RewriteMode, near selectionRect: NSRect) {
+        let modes = Settings.shared.rewriteModes
+        guard !modes.isEmpty else { return }
 
         currentPanel?.close()
 
@@ -332,8 +351,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
-        // Immediately run the initial mode
         runMode(initialMode)
+    }
+
+    // MARK: - Services menu
+
+    /// Invoked by macOS when the user picks a Rewrite entry from the
+    /// system Services menu. The mode is identified by `userData`, which
+    /// matches a mode name from `Settings.rewriteModes` (or empty for the
+    /// "Rewrite Selection" top-level entry, which uses the default mode).
+    /// Registered as a services provider in `applicationDidFinishLaunching`.
+    @objc func rewriteService(
+        _ pasteboard: NSPasteboard,
+        userData: String,
+        error errorPointer: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        guard let text = pasteboard.string(forType: .string)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty
+        else {
+            errorPointer.pointee = "No text selected" as NSString
+            return
+        }
+
+        // The source app is whoever has focus when the service fires.
+        // Cache its PID so `AccessibilityService.replaceTextInSourceApp`
+        // knows where to write the result back to.
+        if let app = NSWorkspace.shared.frontmostApplication {
+            AccessibilityService.shared.sourceAppPID = app.processIdentifier
+        }
+
+        // Resolve the mode: by name (matching the Info.plist NSUserData),
+        // falling back to the user's default mode for the generic entry
+        // or any name that's been renamed since we shipped.
+        let modes = Settings.shared.rewriteModes
+        let mode: RewriteMode
+        if let match = modes.first(where: { $0.name == userData }) {
+            mode = match
+        } else if let fallback = defaultRewriteMode() {
+            mode = fallback
+        } else {
+            return
+        }
+
+        // No precise selection rect from the Services entry. Anchor the
+        // panel at the mouse cursor — usually where the right-click that
+        // opened the menu was — and let panelOrigin handle screen clamping.
+        let mouse = NSEvent.mouseLocation
+        let rect = NSRect(x: mouse.x, y: mouse.y, width: 1, height: 1)
+
+        DispatchQueue.main.async {
+            self.runRewrite(text: text, initialMode: mode, near: rect)
+        }
     }
 
     // MARK: - Speech-to-Text
