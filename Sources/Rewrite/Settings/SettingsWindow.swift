@@ -371,6 +371,7 @@ private struct SettingsContentView: View {
 
             Toggle("Launch at Login", isOn: $launchAtLogin)
                 .toggleStyle(.switch)
+                .controlSize(.mini)
                 .onChange(of: launchAtLogin) { enabled in
                     do {
                         if enabled {
@@ -490,6 +491,7 @@ private struct SettingsContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Post-process transcript with LLM", isOn: $settings.voicePostProcessEnabled)
                         .toggleStyle(.switch)
+                        .controlSize(.mini)
 
                     Text("Pipes the raw transcript through the LLM using the prompt below. Useful for cleaning filler words, fixing punctuation, or any custom transformation.")
                         .font(.caption)
@@ -623,6 +625,7 @@ private struct SettingsContentView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Toggle("Keep model loaded", isOn: $settings.keepModelLoaded)
                     .toggleStyle(.switch)
+                    .controlSize(.mini)
                     .onChange(of: settings.keepModelLoaded) { keep in
                         Task {
                             if keep {

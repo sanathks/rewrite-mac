@@ -17,6 +17,7 @@ struct LauncherSettingsTab: View {
 
             Toggle("Enable launcher", isOn: $settings.launcherEnabled)
                 .toggleStyle(.switch)
+                .controlSize(.mini)
                 .onChange(of: settings.launcherEnabled) { enabled in
                     if enabled {
                         LauncherEngine.shared.install()
