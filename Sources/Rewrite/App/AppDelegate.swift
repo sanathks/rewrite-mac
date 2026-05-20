@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var currentPanel: ResultPanel?
     private let recordingIndicator = RecordingIndicatorPanel()
+    private let inlineProgress = InlineProgressPanel()
     private var silenceTimer: Timer?
     private var recordingStartTime: Date?
     private var hasReceivedSpeech = false
@@ -306,13 +307,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let selectionRect = AccessibilityService.shared.getSelectionRect()
         let settings = Settings.shared
         let mode = settings.rewriteModes.first(where: { $0.id == settings.defaultModeId })
             ?? settings.rewriteModes[0]
         let prompt = Prompts.rewrite(mode: mode, text: text)
 
-        LLMService.shared.generate(prompt: prompt) { result in
+        // Anchor a small "Fixing grammar…" shimmer next to the selection so
+        // the user sees the hotkey was received. This is the only rewrite
+        // path that writes back without any other UI; everything else
+        // (Rewrite hotkey, voice) already shows a panel of its own.
+        inlineProgress.show(at: selectionRect, label: "Fixing grammar\u{2026}")
+
+        LLMService.shared.generate(prompt: prompt) { [weak self] result in
             DispatchQueue.main.async {
+                self?.inlineProgress.close()
                 switch result {
                 case .success(let corrected):
                     AccessibilityService.shared.replaceTextInSourceApp(corrected, originalText: text)
