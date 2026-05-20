@@ -165,6 +165,13 @@ final class Settings: ObservableObject {
         didSet { defaults.set(voiceHotwords, forKey: "voiceHotwords") }
     }
 
+    /// When true, watch the focused text field after a voice insertion and
+    /// suggest adding proper-noun corrections (e.g. "candies" → "Candis")
+    /// to the hotwords list. See `HotwordsLearner`.
+    @Published var voiceHotwordsAutoLearn: Bool {
+        didSet { defaults.set(voiceHotwordsAutoLearn, forKey: "voiceHotwordsAutoLearn") }
+    }
+
     static let defaultVoicePostProcessPrompt =
         "Clean up the following voice transcription. Fix grammar, punctuation, and capitalization. Remove filler words (um, uh, like, you know, sort of). Preserve the speaker's meaning and intent — do not paraphrase, summarize, or add information. Return only the cleaned text with no preamble or commentary."
 
@@ -298,6 +305,7 @@ final class Settings: ObservableObject {
             ?? Settings.defaultVoicePostProcessPrompt
 
         self.voiceHotwords = defaults.string(forKey: "voiceHotwords") ?? ""
+        self.voiceHotwordsAutoLearn = (defaults.object(forKey: "voiceHotwordsAutoLearn") as? Bool) ?? true
 
         // Launcher (Carbon hotkey based — opt-in).
         self.launcherEnabled = defaults.bool(forKey: "launcherEnabled")

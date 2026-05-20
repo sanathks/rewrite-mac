@@ -539,6 +539,15 @@ private struct SettingsContentView: View {
                             RoundedRectangle(cornerRadius: 4)
                                 .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                         )
+
+                    Toggle("Learn from my corrections", isOn: $settings.voiceHotwordsAutoLearn)
+                        .toggleStyle(.switch)
+                        .padding(.top, 4)
+
+                    Text("After a voice insertion, watches the text field for ~60 seconds. If you replace a transcribed word with a proper noun (e.g. \"candies\" → \"Candis\"), Rewrite offers to add it here.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack {

@@ -438,6 +438,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         switch result {
                         case .success(let corrected):
                             AccessibilityService.shared.insertTextInSourceApp(corrected)
+                            HotwordsLearner.shared.watch(insertedText: corrected)
                             self.recordingIndicator.close()
                         case .failure:
                             NSSound.beep()
@@ -447,6 +448,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } else {
                 AccessibilityService.shared.insertTextInSourceApp(transcribedText)
+                HotwordsLearner.shared.watch(insertedText: transcribedText)
                 self.recordingIndicator.close()
             }
         }
