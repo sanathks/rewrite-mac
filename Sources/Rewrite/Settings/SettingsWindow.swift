@@ -51,6 +51,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     case modes
     case shortcuts
     case voice
+    case meetings
     case launcher
 
     var id: String { rawValue }
@@ -61,6 +62,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .modes: return "Modes"
         case .shortcuts: return "Shortcuts"
         case .voice: return "Voice"
+        case .meetings: return "Meetings"
         case .launcher: return "Launcher"
         }
     }
@@ -71,6 +73,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .modes: return "text.badge.star"
         case .shortcuts: return "keyboard"
         case .voice: return "mic"
+        case .meetings: return "waveform.and.person.filled"
         case .launcher: return "bolt.fill"
         }
     }
@@ -102,9 +105,6 @@ private struct SettingsContentView: View {
     /// appears after the first tab switch triggers a layout pass.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     private let recommendedModelName = "gemma3:4b"
-
-    private let engineDescription =
-        "NVIDIA Parakeet TDT. Best English accuracy (~6% WER), fast on Apple Silicon. Transcribes after recording ends. Supports custom vocabulary boosting."
 
     private var isLLMReady: Bool {
         switch settings.llmProvider {
@@ -204,6 +204,9 @@ private struct SettingsContentView: View {
                 Task { await EmbeddedLLMService.shared.unobserve(id) }
                 embeddedStatusObserverID = nil
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .rewriteShowMeetingsTab)) { _ in
+            selectedTab = .meetings
         }
     }
 
@@ -328,6 +331,8 @@ private struct SettingsContentView: View {
             shortcutsTab
         case .voice:
             voiceTab
+        case .meetings:
+            MeetingsView()
         case .launcher:
             LauncherSettingsTab()
         }
@@ -428,24 +433,53 @@ private struct SettingsContentView: View {
                 .fontWeight(.semibold)
 
             VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Engine")
+                        .font(.subheadline)
+                    Spacer()
+                    Picker("", selection: $settings.sttEngine) {
+                        ForEach(STTEngine.allCases) { engine in
+                            Text(engine.displayName).tag(engine)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 230)
+                    .onChange(of: settings.sttEngine) { _ in
+                        isDownloadingModel = false
+                        checkModelStatus()
+                    }
+                }
+
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "info.circle")
                         .foregroundColor(.secondary)
                         .font(.caption)
                         .padding(.top, 1)
-                    Text(engineDescription)
+                    Text(settings.sttEngine == .parakeet
+                        ? "NVIDIA Parakeet TDT. Best English accuracy (~6% WER), fast on Apple Silicon. Transcribes after recording ends."
+                        : "Apple Neural Engine powered transcription via CoreML. Multilingual support. Transcribes after recording ends.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack {
-                    Text("Model")
-                        .font(.subheadline)
-                    Spacer()
-                    Text("Parakeet TDT 0.6B INT8 (~640 MB)")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                if settings.sttEngine == .whisperKit {
+                    HStack {
+                        Text("Model Size")
+                            .font(.subheadline)
+                        Spacer()
+                        Picker("", selection: $settings.whisperModelSize) {
+                            ForEach(WhisperModelSize.allCases) { size in
+                                Text(size.displayName).tag(size)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 200)
+                        .onChange(of: settings.whisperModelSize) { _ in
+                            isDownloadingModel = false
+                            checkModelStatus()
+                        }
+                    }
                 }
 
                 HStack {

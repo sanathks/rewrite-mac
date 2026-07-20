@@ -42,9 +42,12 @@ Source files live in domain-grouped folders under `Sources/Rewrite/`:
     + keep-alive ping; cancellation via `Task.isCancelled`.
   - `Prompts.swift` — rewrite + voice-post-process prompt templates.
 - **`Speech/`** — voice / STT pipeline
-  - `SpeechService.swift` — Parakeet-only STT facade. WhisperKit was removed;
-    do not reintroduce (swift-transformers version conflict with LocalLLMClient).
+  - `SpeechService.swift` — STT facade routing between Parakeet and WhisperKit
+    based on `Settings.shared.sttEngine`. WhisperKit uses `argmax-oss-swift`
+    v1.0.0 (no swift-transformers dependency; prior conflict with LocalLLMClient
+    is resolved).
   - `ParakeetEngine.swift` — sherpa-onnx Parakeet TDT backend.
+  - `WhisperKitEngine.swift` — CoreML WhisperKit backend via argmax-oss-swift.
   - `AudioCapture.swift` — CoreAudio HAL Output mic capture.
   - `AudioLevelMonitor.swift` — RMS level smoothing for the recording UI.
 - **`Settings/`** — settings model + windows

@@ -29,6 +29,44 @@ struct RewriteMode: Codable, Identifiable, Equatable {
     var prompt: String
 }
 
+enum STTEngine: String, CaseIterable, Identifiable {
+    case parakeet
+    case whisperKit
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .parakeet: return "Parakeet TDT 0.6B"
+        case .whisperKit: return "WhisperKit (Apple Neural Engine)"
+        }
+    }
+}
+
+enum WhisperModelSize: String, CaseIterable, Identifiable {
+    case tiny
+    case small
+    case largeTurbo
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .tiny: return "Tiny (~160 MB)"
+        case .small: return "Small (~590 MB)"
+        case .largeTurbo: return "Large Turbo (~954 MB)"
+        }
+    }
+
+    var whisperKitModelName: String {
+        switch self {
+        case .tiny: return "openai_whisper-tiny"
+        case .small: return "openai_whisper-small"
+        case .largeTurbo: return "openai_whisper-large-v3_turbo_954MB"
+        }
+    }
+}
+
 enum LLMProvider: String, CaseIterable, Identifiable {
     case embedded
     case remote
@@ -166,6 +204,28 @@ final class Settings: ObservableObject {
     /// because AudioDeviceID is reassigned on every unplug/replug.
     @Published var selectedMicUID: String {
         didSet { defaults.set(selectedMicUID, forKey: "selectedMicUID") }
+    }
+
+    @Published var sttEngine: STTEngine {
+        didSet { defaults.set(sttEngine.rawValue, forKey: "sttEngine") }
+    }
+
+    @Published var whisperModelSize: WhisperModelSize {
+        didSet { defaults.set(whisperModelSize.rawValue, forKey: "whisperModelSize") }
+    }
+
+    /// When true, meeting recordings also capture system audio (the remote
+    /// side of a call) via Core Audio process taps and mix it with the mic.
+    /// Uses the audio-recording permission (no Screen Recording, no indicator).
+    @Published var meetingCaptureSystemAudio: Bool {
+        didSet { defaults.set(meetingCaptureSystemAudio, forKey: "meetingCaptureSystemAudio") }
+    }
+
+    /// When true, a background watcher detects when a meeting starts (a running
+    /// conferencing app or a live calendar event) and posts a notification
+    /// offering to start recording. It never records without confirmation.
+    @Published var meetingAutoDetectEnabled: Bool {
+        didSet { defaults.set(meetingAutoDetectEnabled, forKey: "meetingAutoDetectEnabled") }
     }
 
     @Published var hasCompletedOnboarding: Bool {
@@ -319,7 +379,33 @@ final class Settings: ObservableObject {
             }
         }
 
+        if let raw = defaults.string(forKey: "sttEngine"),
+           let engine = STTEngine(rawValue: raw) {
+            self.sttEngine = engine
+        } else {
+            self.sttEngine = .parakeet
+        }
+
+        if let raw = defaults.string(forKey: "whisperModelSize"),
+           let size = WhisperModelSize(rawValue: raw) {
+            self.whisperModelSize = size
+        } else {
+            self.whisperModelSize = .tiny
+        }
+
         self.hasCompletedOnboarding = defaults.bool(forKey: "hasCompletedOnboarding")
+
+        // System-audio capture for meetings defaults on (falls back to mic-only
+        // if Screen Recording permission is not granted).
+        if defaults.object(forKey: "meetingCaptureSystemAudio") != nil {
+            self.meetingCaptureSystemAudio = defaults.bool(forKey: "meetingCaptureSystemAudio")
+        } else {
+            self.meetingCaptureSystemAudio = true
+        }
+
+        // Auto-detection is opt-in (off by default) since it monitors running
+        // apps and the calendar in the background.
+        self.meetingAutoDetectEnabled = defaults.bool(forKey: "meetingAutoDetectEnabled")
 
         // Load default mode
         if let idString = defaults.string(forKey: "defaultModeId"),

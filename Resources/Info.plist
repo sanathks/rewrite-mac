@@ -19,6 +19,10 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Rewrite uses the microphone for speech-to-text dictation.</string>
+    <string>Rewrite uses the microphone for speech-to-text dictation and meeting transcription.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Rewrite captures system audio to transcribe the other participants in your meetings.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Rewrite reads calendar events to automatically title your meeting recordings.</string>
 </dict>
 </plist>

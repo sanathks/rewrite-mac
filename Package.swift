@@ -11,6 +11,7 @@ let package = Package(
     dependencies: [
         .package(path: "vendor/sherpa-onnx"),
         .package(path: "vendor/LocalLLMClient"),
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift", from: "1.0.0"),
     ],
     targets: [
         .executableTarget(
@@ -19,6 +20,8 @@ let package = Package(
                 .product(name: "SherpaOnnxSwift", package: "sherpa-onnx"),
                 .product(name: "LocalLLMClient", package: "LocalLLMClient"),
                 .product(name: "LocalLLMClientLlama", package: "LocalLLMClient"),
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
+                .product(name: "SpeakerKit", package: "argmax-oss-swift"),
             ],
             path: "Sources/Rewrite",
             swiftSettings: [

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import UserNotifications
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -55,12 +56,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             LauncherEngine.shared.install()
         }
 
+        // Meeting auto-detection (notify-and-confirm). Handles its own timer
+        // and no-ops when the setting is off.
+        UNUserNotificationCenter.current().delegate = self
+        MainActor.assumeIsolated { MeetingWatcher.shared.syncWithSettings() }
+        observeMeetingAutoDetectChanges()
+
         // Show onboarding wizard on first launch
         if !Settings.shared.hasCompletedOnboarding {
             DispatchQueue.main.async {
                 OnboardingWindow.show()
             }
         }
+    }
+
+    private func observeMeetingAutoDetectChanges() {
+        Settings.shared.$meetingAutoDetectEnabled
+            .receive(on: RunLoop.main)
+            .sink { _ in
+                Task { @MainActor in MeetingWatcher.shared.syncWithSettings() }
+            }
+            .store(in: &cancellables)
     }
 
     private func setupMainMenu() {
@@ -222,6 +238,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         micItem.submenu = micMenu
         menu.addItem(micItem)
 
+        let historyEntries = TranscriptionHistory.shared.entries
+        if !historyEntries.isEmpty {
+            let historyMenu = NSMenu()
+            let historyItem = NSMenuItem(title: "Recent Transcriptions", action: nil, keyEquivalent: "")
+            historyItem.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "Recent Transcriptions")
+
+            for entry in historyEntries {
+                let oneLine = entry.text.replacingOccurrences(of: "\n", with: " ")
+                let label = oneLine.count > 50 ? String(oneLine.prefix(50)) + "…" : oneLine
+                let item = NSMenuItem(title: label, action: #selector(copyTranscription(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = entry.text
+                historyMenu.addItem(item)
+            }
+
+            historyMenu.addItem(.separator())
+            let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearTranscriptionHistory), keyEquivalent: "")
+            clearItem.target = self
+            historyMenu.addItem(clearItem)
+
+            historyItem.submenu = historyMenu
+            menu.addItem(historyItem)
+        }
+
         menu.addItem(.separator())
 
         // LLM status row — text + meaning depends on the active provider.
@@ -289,6 +329,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func selectMic(_ sender: NSMenuItem) {
         Settings.shared.selectedMicUID = (sender.representedObject as? String) ?? ""
+    }
+
+    @objc private func copyTranscription(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc private func clearTranscriptionHistory() {
+        TranscriptionHistory.shared.clear()
     }
 
     @objc private func openSettingsMenu() {
@@ -478,6 +528,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Capture source app PID before we do anything
         if let frontApp = NSWorkspace.shared.frontmostApplication {
             AccessibilityService.shared.sourceAppPID = frontApp.processIdentifier
+            NSLog("[voice-insert] beginSTTSession captured sourceAppPID=\(frontApp.processIdentifier) name=\(frontApp.localizedName ?? "?")")
+        } else {
+            NSLog("[voice-insert] beginSTTSession: no frontmostApplication; sourceAppPID=\(AccessibilityService.shared.sourceAppPID)")
         }
 
         // Show recording indicator
@@ -532,6 +585,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         speech.onFinalResult = { [weak self] transcribedText in
             guard let self else { return }
+            NSLog("[voice-insert] onFinalResult len=\(transcribedText.count) sourceAppPID=\(AccessibilityService.shared.sourceAppPID)")
+            TranscriptionHistory.shared.add(transcribedText)
 
             let settings = Settings.shared
 
@@ -629,4 +684,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingIndicator.close()
     }
 
+}
+
+// MARK: - Meeting detection notifications
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    // Show the banner even when the app is frontmost.
+    @objc nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    @objc nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let actionID = response.actionIdentifier
+        Task { @MainActor in
+            switch actionID {
+            case MeetingWatcher.startActionID, UNNotificationDefaultActionIdentifier:
+                SettingsWindow.show()
+                NotificationCenter.default.post(name: .rewriteShowMeetingsTab, object: nil)
+                MeetingTranscriber.shared.start()
+            default:
+                break
+            }
+            completionHandler()
+        }
+    }
+}
+
+extension Notification.Name {
+    static let rewriteShowMeetingsTab = Notification.Name("rewriteShowMeetingsTab")
 }

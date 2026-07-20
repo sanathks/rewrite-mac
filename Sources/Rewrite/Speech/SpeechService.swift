@@ -33,6 +33,7 @@ final class SpeechService {
     var onAudioLevel: ((Float) -> Void)?
 
     private var parakeetEngine: ParakeetEngine?
+    private var whisperEngine: WhisperKitEngine?
     private var isActive = false
 
     private var safetyTimer: Timer?
@@ -41,10 +42,14 @@ final class SpeechService {
     private init() {}
 
     func preloadModel() {
-        if parakeetEngine == nil {
-            parakeetEngine = ParakeetEngine()
+        switch Settings.shared.sttEngine {
+        case .parakeet:
+            if parakeetEngine == nil { parakeetEngine = ParakeetEngine() }
+            parakeetEngine?.preload()
+        case .whisperKit:
+            if whisperEngine == nil { whisperEngine = WhisperKitEngine() }
+            whisperEngine?.preload(size: Settings.shared.whisperModelSize)
         }
-        parakeetEngine?.preload()
     }
 
     func startRecording() {
@@ -60,13 +65,21 @@ final class SpeechService {
         }
 
         isActive = true
-        if parakeetEngine == nil {
-            parakeetEngine = ParakeetEngine()
+
+        switch Settings.shared.sttEngine {
+        case .parakeet:
+            if parakeetEngine == nil { parakeetEngine = ParakeetEngine() }
+            parakeetEngine?.onFinalResult = { [weak self] text in self?.onFinalResult?(text) }
+            parakeetEngine?.onError = { [weak self] error in self?.onError?(error) }
+            parakeetEngine?.onAudioLevel = { [weak self] level in self?.onAudioLevel?(level) }
+            parakeetEngine?.startRecording()
+        case .whisperKit:
+            if whisperEngine == nil { whisperEngine = WhisperKitEngine() }
+            whisperEngine?.onFinalResult = { [weak self] text in self?.onFinalResult?(text) }
+            whisperEngine?.onError = { [weak self] error in self?.onError?(error) }
+            whisperEngine?.onAudioLevel = { [weak self] level in self?.onAudioLevel?(level) }
+            whisperEngine?.startRecording()
         }
-        parakeetEngine?.onFinalResult = { [weak self] text in self?.onFinalResult?(text) }
-        parakeetEngine?.onError = { [weak self] error in self?.onError?(error) }
-        parakeetEngine?.onAudioLevel = { [weak self] level in self?.onAudioLevel?(level) }
-        parakeetEngine?.startRecording()
 
         safetyTimer?.invalidate()
         safetyTimer = Timer.scheduledTimer(withTimeInterval: Self.safetyTimeout, repeats: false) { [weak self] _ in
@@ -84,7 +97,12 @@ final class SpeechService {
         safetyTimer = nil
 
         if isActive {
-            parakeetEngine?.stopRecording()
+            switch Settings.shared.sttEngine {
+            case .parakeet:
+                parakeetEngine?.stopRecording()
+            case .whisperKit:
+                whisperEngine?.stopRecording()
+            }
         }
         isActive = false
     }
@@ -92,14 +110,28 @@ final class SpeechService {
     // MARK: - Model Status
 
     static func isModelReady() -> Bool {
-        ParakeetEngine.isModelReady()
+        switch Settings.shared.sttEngine {
+        case .parakeet:
+            return ParakeetEngine.isModelReady()
+        case .whisperKit:
+            return WhisperKitEngine.isModelReady(size: Settings.shared.whisperModelSize)
+        }
     }
 
     static func downloadModel(
         progress: @escaping (Double) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        ParakeetEngine.downloadModel(progress: progress, completion: completion)
+        switch Settings.shared.sttEngine {
+        case .parakeet:
+            ParakeetEngine.downloadModel(progress: progress, completion: completion)
+        case .whisperKit:
+            WhisperKitEngine.downloadModel(
+                size: Settings.shared.whisperModelSize,
+                progress: progress,
+                completion: completion
+            )
+        }
     }
 
     // MARK: - Microphone Permission
