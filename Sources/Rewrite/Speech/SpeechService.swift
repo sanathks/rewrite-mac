@@ -36,6 +36,10 @@ final class SpeechService {
     private var whisperEngine: WhisperKitEngine?
     private var isActive = false
 
+    /// Tracks whether the STT model is still loading. Set to true when
+    /// preload begins and cleared once the model is ready.
+    private var isModelLoading = false
+
     private var safetyTimer: Timer?
     private static let safetyTimeout: TimeInterval = 60
 
@@ -45,10 +49,18 @@ final class SpeechService {
         switch Settings.shared.sttEngine {
         case .parakeet:
             if parakeetEngine == nil { parakeetEngine = ParakeetEngine() }
-            parakeetEngine?.preload()
+            guard ParakeetEngine.isModelReady() else { return }
+            isModelLoading = true
+            parakeetEngine?.preload { [weak self] in
+                self?.isModelLoading = false
+            }
         case .whisperKit:
             if whisperEngine == nil { whisperEngine = WhisperKitEngine() }
-            whisperEngine?.preload(size: Settings.shared.whisperModelSize)
+            guard WhisperKitEngine.isModelReady(size: Settings.shared.whisperModelSize) else { return }
+            isModelLoading = true
+            whisperEngine?.preload(size: Settings.shared.whisperModelSize) { [weak self] in
+                self?.isModelLoading = false
+            }
         }
     }
 
@@ -97,6 +109,27 @@ final class SpeechService {
         safetyTimer = nil
 
         if isActive {
+            // Wait for model to finish loading if still in progress
+            if isModelLoading {
+                let engine = Settings.shared.sttEngine
+                let modelSize = Settings.shared.whisperModelSize
+                isActive = false
+                Task {
+                    while isModelLoading {
+                        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                    }
+                    // Model is now ready — re-trigger recording flow
+                    isActive = true
+                    switch engine {
+                    case .parakeet:
+                        parakeetEngine?.stopRecording()
+                    case .whisperKit:
+                        whisperEngine?.stopRecording()
+                    }
+                }
+                return
+            }
+
             switch Settings.shared.sttEngine {
             case .parakeet:
                 parakeetEngine?.stopRecording()

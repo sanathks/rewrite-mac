@@ -32,11 +32,17 @@ final class WhisperKitEngine {
         return contents.contains { $0.pathExtension == "mlmodelc" }
     }
 
-    func preload(size: WhisperModelSize) {
-        guard WhisperKitEngine.isModelReady(size: size), whisperKit == nil else { return }
+    func preload(size: WhisperModelSize, completion: (() -> Void)? = nil) {
+        guard WhisperKitEngine.isModelReady(size: size), whisperKit == nil else {
+            completion?()
+            return
+        }
         guard let path = UserDefaults.standard.string(
             forKey: WhisperKitEngine.modelFolderKey(for: size)
-        ) else { return }
+        ) else {
+            completion?()
+            return
+        }
 
         Task {
             let kit = try? await WhisperKit(WhisperKitConfig(
@@ -46,8 +52,9 @@ final class WhisperKitEngine {
                 load: true,
                 download: false
             ))
-            await MainActor.run { [weak self] in
-                self?.whisperKit = kit
+            await MainActor.run {
+                self.whisperKit = kit
+                completion?()
             }
         }
     }

@@ -38,14 +38,15 @@ final class ParakeetEngine {
         }
     }
 
-    func preload() {
-        guard ParakeetEngine.isModelReady() else { return }
-        guard recognizer == nil else { return }
+    func preload(completion: (() -> Void)? = nil) {
+        guard ParakeetEngine.isModelReady() else { completion?(); return }
+        guard recognizer == nil else { completion?(); return }
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let rec = ParakeetEngine.createRecognizer()
             DispatchQueue.main.async {
                 self?.recognizer = rec
+                completion?()
             }
         }
     }
@@ -61,7 +62,7 @@ final class ParakeetEngine {
         }
         audioCapture.startCapture(deviceID: deviceID)
 
-        // Pre-load recognizer if needed
+        // Pre-load recognizer if needed (fallback if preloadModel wasn't called)
         if recognizer == nil && ParakeetEngine.isModelReady() {
             Task.detached { [weak self] in
                 let capturedSelf = self
