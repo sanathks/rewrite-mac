@@ -388,14 +388,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let text = AccessibilityService.shared.getSelectedText(), !text.isEmpty else {
+        // Try explicit selection first; fall back to paragraph around cursor.
+        let text: String?
+        let wasSelected: Bool
+        if let selected = AccessibilityService.shared.getSelectedText(), !selected.isEmpty {
+            text = selected
+            wasSelected = true
+        } else if let paragraph = AccessibilityService.shared.getTextAroundCursor(), !paragraph.isEmpty {
+            text = paragraph
+            wasSelected = false
+        } else {
             return
         }
 
         let selectionRect = AccessibilityService.shared.getSelectionRect()
         guard let initialMode = defaultRewriteMode() else { return }
 
-        runRewrite(text: text, initialMode: initialMode, near: selectionRect)
+        runRewrite(text: text, initialMode: initialMode, near: selectionRect, wasSelected: wasSelected)
     }
 
     /// Resolve the mode to start with: the user's chosen default if set,
@@ -416,8 +425,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu-bar "Rewrite Selection" entries. `selectionRect` is the
     /// on-screen anchor used for panel placement — pass `.zero` if you
     /// don't have one and the panel falls back to the mouse-cursor
-    /// position.
-    private func runRewrite(text: String, initialMode: RewriteMode, near selectionRect: NSRect) {
+    /// position. `wasSelected` indicates whether the text came from an
+    /// explicit selection (true) or from paragraph extraction around the
+    /// cursor (false). This affects how the replacement is performed.
+    private func runRewrite(text: String, initialMode: RewriteMode, near selectionRect: NSRect, wasSelected: Bool = true) {
         let modes = Settings.shared.rewriteModes
         guard !modes.isEmpty else { return }
 
@@ -466,7 +477,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onReplace: { [weak self] result in
                 self?.currentPanel = nil
-                AccessibilityService.shared.replaceTextInSourceApp(result, originalText: text)
+                if wasSelected {
+                    AccessibilityService.shared.replaceTextInSourceApp(result, originalText: text)
+                } else {
+                    AccessibilityService.shared.replaceParagraph(result, originalText: text)
+                }
             },
             onCopy: { [weak self] result in
                 self?.currentPanel = nil
@@ -501,7 +516,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let rect = AccessibilityService.shared.getSelectionRect()
-        runRewrite(text: text, initialMode: mode, near: rect)
+        runRewrite(text: text, initialMode: mode, near: rect, wasSelected: true)
     }
 
     // MARK: - Speech-to-Text

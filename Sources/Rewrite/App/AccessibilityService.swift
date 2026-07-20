@@ -71,10 +71,243 @@ final class AccessibilityService {
             kAXSelectedTextAttribute as CFString,
             &selectedRaw
         ) == .success, let text = selectedRaw as? String, !text.isEmpty else {
-            return getSelectedTextViaClipboard()
+            return getTextAroundCursor()
         }
 
         return text
+    }
+
+    /// When nothing is selected, grab the paragraph (or sentence if too long)
+    /// around the current cursor position. This enables "fix grammar" without
+    /// manual text selection.
+    func getTextAroundCursor() -> String? {
+        let systemWide = AXUIElementCreateSystemWide()
+
+        var focusedRaw: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedRaw
+        ) == .success else {
+            return nil
+        }
+
+        let focused = focusedRaw as! AXUIElement
+        cachedFocusedElement = focused
+
+        var pid: pid_t = 0
+        AXUIElementGetPid(focused, &pid)
+        sourceAppPID = pid
+        enableEnhancedUI(for: pid)
+
+        // Get the full text content
+        var fullTextRaw: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+            focused,
+            kAXValueAttribute as CFString,
+            &fullTextRaw
+        ) == .success, let fullText = fullTextRaw as? String, !fullText.isEmpty else {
+            return nil
+        }
+
+        // Determine cursor position
+        let cursorPos = findCursorPosition(in: fullText, focusedElement: focused)
+        guard cursorPos >= 0, cursorPos <= fullText.count else { return nil }
+
+        // Try paragraph first, then sentence
+        if let paragraph = extractParagraph(from: fullText, at: cursorPos) {
+            return paragraph
+        }
+
+        return nil
+    }
+
+    /// Find the character offset of the cursor/selection start.
+    private func findCursorPosition(in text: String, focusedElement: AXUIElement) -> Int {
+        let chars = Array(text)
+
+        // 1. Try AXSelectedTextRangeAttribute (AppKit text views)
+        if let rangeValue = copyAXAttributeAsValue(focusedElement, kAXSelectedTextRangeAttribute as CFString) {
+            var cfRange = CFRange(location: 0, length: 0)
+            if AXValueGetValue(rangeValue, .cfRange, &cfRange) {
+                return min(cfRange.location, chars.count)
+            }
+        }
+
+        // 2. Try AXSelectedTextMarkerRangeAttribute (web views)
+        if let markerRangeRaw = copyAXAttribute(focusedElement, "AXSelectedTextMarkerRange" as CFString),
+           let markerRange = markerRangeRaw as? AXValue {
+            // For web views, try to get the start marker's character position
+            // This is a best-effort — web views often don't expose character positions
+            var startMarker: AnyObject?
+            if AXUIElementCopyParameterizedAttributeValue(
+                focusedElement,
+                "AXStartTextMarkerAttribute" as CFString,
+                markerRange,
+                &startMarker
+            ) == .success, let marker = startMarker as? AXValue {
+                // Try to get character position from the marker
+                if let charPos = getCharacterPosition(from: marker, in: focusedElement) {
+                    return min(charPos, chars.count)
+                }
+            }
+        }
+
+        // 3. Try AXCursorCharacterPositionAttribute (some text fields)
+        if let cursorPosRaw = copyAXAttributeAsInt32(focusedElement, "AXCursorCharacterPosition" as CFString) {
+            return min(cursorPosRaw, chars.count)
+        }
+
+        // 4. Fallback: use mouse position to estimate cursor
+        return estimateCursorPositionFromMouse(in: text)
+    }
+
+    /// Copy an AX attribute value as an AXValue (for ranges, rects, etc.)
+    private func copyAXAttributeAsValue(_ element: AXUIElement, _ attribute: CFString) -> AXValue? {
+        var raw: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute, &raw) == .success,
+              let value = raw as? AXValue else { return nil }
+        return value
+    }
+
+    /// Copy an AX attribute as a raw AnyObject
+    private func copyAXAttribute(_ element: AXUIElement, _ attribute: CFString) -> AnyObject? {
+        var raw: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute, &raw) == .success else { return nil }
+        return raw
+    }
+
+    /// Copy an AX attribute as an Int32
+    private func copyAXAttributeAsInt32(_ element: AXUIElement, _ attribute: CFString) -> Int32? {
+        var value: Int32 = 0
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+        return value
+    }
+
+    /// Get character position from a text marker (for web views).
+    /// This is a best-effort — many web views don't expose this.
+    private func getCharacterPosition(from marker: AXValue, in element: AXUIElement) -> Int? {
+        // Try to get the character position via AXPositionAttribute
+        // This is implementation-specific and may not work for all web views
+        var posRaw: AnyObject?
+        if AXUIElementCopyAttributeValue(element, "AXPositionAttribute" as CFString, &posRaw) == .success {
+            // Some web views expose character position directly
+            if let charPos = posRaw as? Int32 {
+                return Int(charPos)
+            }
+        }
+        return nil
+    }
+
+    /// Estimate cursor position based on mouse location.
+    private func estimateCursorPositionFromMouse(in text: String) -> Int {
+        guard let screen = NSScreen.screens.first else { return text.count / 2 }
+        let mouse = NSEvent.mouseLocation
+        let axY = Float(screen.frame.height - mouse.y)
+
+        let systemWide = AXUIElementCreateSystemWide()
+        var elementRaw: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(
+            systemWide, Float(mouse.x), axY, &elementRaw
+        ) == .success, let element = elementRaw else {
+            return text.count / 2
+        }
+
+        // Try to get text marker range from this element
+        if let markerRangeRaw = copyAXAttribute(element, "AXSelectedTextMarkerRange" as CFString),
+           let markerRange = markerRangeRaw as? AXValue {
+            var startMarker: AnyObject?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                "AXStartTextMarkerAttribute" as CFString,
+                markerRange,
+                &startMarker
+            ) == .success, let marker = startMarker as? AXValue {
+                if let charPos = getCharacterPosition(from: marker, in: element) {
+                    return charPos
+                }
+            }
+        }
+
+        return text.count / 2
+    }
+
+    /// Extract the paragraph containing the given character position.
+    /// A paragraph is delimited by newlines. If the paragraph is too long
+    /// (>500 chars), falls back to sentence extraction.
+    private func extractParagraph(from text: String, at position: Int) -> String? {
+        let chars = Array(text)
+        guard position >= 0, position <= chars.count else { return nil }
+
+        // Find paragraph start (scan backwards for newline)
+        var start = position
+        while start > 0 {
+            start -= 1
+            if chars[start] == "\n" || chars[start] == "\r" {
+                start += 1
+                break
+            }
+        }
+
+        // Find paragraph end (scan forwards for newline)
+        var end = position
+        while end < chars.count {
+            if chars[end] == "\n" || chars[end] == "\r" {
+                break
+            }
+            end += 1
+        }
+
+        let paragraph = String(chars[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If paragraph is too long, extract sentence instead
+        if paragraph.count > 500 {
+            return extractSentence(from: text, at: position)
+        }
+
+        return paragraph.isEmpty ? nil : paragraph
+    }
+
+    /// Extract the sentence containing the given character position.
+    /// A sentence is delimited by period+space, newline, or end of text.
+    private func extractSentence(from text: String, at position: Int) -> String? {
+        let chars = Array(text)
+        guard position >= 0, position < chars.count else { return nil }
+
+        // Find sentence start (scan backwards for sentence boundary)
+        var start = position
+        while start > 0 {
+            start -= 1
+            if chars[start] == "." || chars[start] == "!" || chars[start] == "?" {
+                // Check if followed by space/newline (actual sentence boundary)
+                if start + 1 < chars.count && (chars[start + 1] == " " || chars[start + 1] == "\n" || chars[start + 1] == "\r") {
+                    start += 1
+                    break
+                }
+            }
+            if chars[start] == "\n" || chars[start] == "\r" {
+                start += 1
+                break
+            }
+        }
+
+        // Find sentence end (scan forwards for sentence boundary)
+        var end = position
+        while end < chars.count {
+            if chars[end] == "." || chars[end] == "!" || chars[end] == "?" {
+                if end + 1 < chars.count && (chars[end + 1] == " " || chars[end + 1] == "\n" || chars[end + 1] == "\r" || end + 1 == chars.count) {
+                    end += 1
+                    break
+                }
+            }
+            if chars[end] == "\n" || chars[end] == "\r" {
+                break
+            }
+            end += 1
+        }
+
+        let sentence = String(chars[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return sentence.isEmpty ? nil : sentence
     }
 
     /// Get the screen position of the currently selected text.
@@ -364,10 +597,21 @@ final class AccessibilityService {
             cachedFocusedElement = (focusedRaw as! AXUIElement)
         }
 
-        // Fast path: direct AX write (works for native AppKit text views).
-        if replaceSelectedTextViaAX(text, originalText: originalText) { return }
+        // If there was an original selection, try direct AX write first.
+        if !originalText.isEmpty {
+            if replaceSelectedTextViaAX(text, originalText: originalText) { return }
+        }
 
-        // Slow path: clipboard-based paste with save/restore.
+        // For paragraph/sentence replacement (no original selection) or when
+        // AX write fails, use clipboard-based paste.
+        replaceTextViaClipboard(text)
+    }
+
+    /// Replace the currently selected text (or paragraph under cursor) via
+    /// clipboard paste. This is used when the user triggered grammar fix
+    /// without an explicit selection — we've grabbed the paragraph and need
+    /// to select it before pasting the replacement.
+    private func replaceTextViaClipboard(_ text: String) {
         let saved = savePasteboard()
 
         let pasteboard = NSPasteboard.general
@@ -381,6 +625,59 @@ final class AccessibilityService {
         usleep(200_000) // wait for paste to land
 
         restorePasteboard(saved)
+    }
+
+    /// Replace a paragraph/sentence at the cursor position via clipboard.
+    /// This is the full flow for grammar fix without selection:
+    /// 1. Select the paragraph text via AX
+    /// 2. Paste the replacement
+    func replaceParagraph(_ text: String, originalText: String) {
+        // Ensure the source app is focused
+        if let app = NSRunningApplication(processIdentifier: sourceAppPID), !app.isActive {
+            app.activate()
+            let start = Date()
+            while !app.isActive && Date().timeIntervalSince(start) < 0.5 {
+                usleep(20_000)
+            }
+            usleep(50_000)
+        }
+
+        // Re-query the focused element
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRaw: AnyObject?
+        if AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedRaw
+        ) == .success {
+            cachedFocusedElement = (focusedRaw as! AXUIElement)
+        }
+
+        // Select the paragraph text before pasting
+        if let focused = cachedFocusedElement {
+            selectParagraph(focused, originalText: originalText)
+        }
+
+        // Paste the replacement
+        replaceTextViaClipboard(text)
+    }
+
+    /// Select the paragraph text in the focused AX element.
+    private func selectParagraph(_ element: AXUIElement, originalText: String) {
+        let chars = Array(originalText)
+        guard !chars.isEmpty else { return }
+
+        // Try AppKit-style range selection
+        let range = CFRange(location: 0, length: chars.count)
+        let rangeValue = AXValueCreate(.cfRange, &range)!
+        AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            rangeValue
+        )
+
+        // Brief pause to let the selection take effect
+        usleep(50_000)
     }
 
     /// Insert text at cursor via clipboard paste (no AX write attempt).
